@@ -1,6 +1,10 @@
 import time
 import pyautogui
-import pygetwindow as gw
+try:
+    import pygetwindow as gw
+except (ImportError, NotImplementedError):
+    gw = None
+
 
 def browser_control(parameters: dict, player=None) -> str:
     """

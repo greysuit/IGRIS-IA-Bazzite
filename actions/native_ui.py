@@ -1,5 +1,9 @@
 import time
-import pygetwindow as gw
+try:
+    import pygetwindow as gw
+except (ImportError, NotImplementedError):
+    gw = None
+
 import pyautogui
 
 def native_ui(parameters: dict, player=None) -> str:

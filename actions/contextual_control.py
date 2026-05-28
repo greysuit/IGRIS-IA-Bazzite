@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 import subprocess
-import pygetwindow as gw
+try:
+    import pygetwindow as gw
+except (ImportError, NotImplementedError):
+    gw = None
+
 import psutil
 from ctypes import cast, POINTER
 from comtypes import CLSCTX_ALL
