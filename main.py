@@ -3,6 +3,12 @@ import json
 import sys
 from pathlib import Path
 
+# Load compatibility layer for Linux (Bazzite/SteamOS/Fedora)
+try:
+    import compat
+except ImportError:
+    pass
+
 # Load config early to determine GPU acceleration settings
 _gpu_enabled = False
 try:
@@ -29,7 +35,10 @@ if _gpu_enabled:
         "--js-flags=--max-old-space-size=256"
     )
     # Enable hardware acceleration backends for Qt
-    os.environ["QSG_RHI_BACKEND"] = "d3d11" # Force Direct3D 11 for hardware rendering on Windows
+    if sys.platform == "win32":
+        os.environ["QSG_RHI_BACKEND"] = "d3d11" # Force Direct3D 11 for hardware rendering on Windows
+    else:
+        os.environ["QSG_RHI_BACKEND"] = "opengl" # Use OpenGL on Linux
     os.environ["QSG_INFO"] = "1"
     print("[JARVIS] GPU Acceleration is ENABLED. Offloading RAM rendering workload to GPU.")
 else:

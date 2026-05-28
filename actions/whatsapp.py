@@ -156,28 +156,32 @@ def whatsapp(parameters: dict, player=None) -> str:
                     return f"Mensaje de texto enviado, pero no se encontró la imagen en: {image_path}"
                 
                 # Copy image to clipboard depending on OS
-                import ctypes
-                from PIL import Image
-                import io
-                
-                # Convert PIL image to clipboard format (DIB)
-                image = Image.open(img_p)
-                output = io.BytesIO()
-                image.convert("RGB").save(output, "BMP")
-                data = output.getvalue()[14:] # Offset 14 is the BMP file header
-                output.close()
-                
-                # Windows clipboard API calls
-                ctypes.windll.user32.OpenClipboard(None)
-                ctypes.windll.user32.EmptyClipboard()
-                # CF_DIB = 8
-                ctypes.windll.user32.SetClipboardData(8, ctypes.windll.kernel32.GlobalAlloc(0x0002, len(data)))
-                # Copy the BMP binary data to allocated memory
-                h_clip_mem = ctypes.windll.user32.GetClipboardData(8)
-                p_clip_mem = ctypes.windll.kernel32.GlobalLock(h_clip_mem)
-                ctypes.cdll.msvcrt.memcpy(p_clip_mem, data, len(data))
-                ctypes.windll.kernel32.GlobalUnlock(h_clip_mem)
-                ctypes.windll.user32.CloseClipboard()
+                if sys.platform == "win32":
+                    import ctypes
+                    from PIL import Image
+                    import io
+                    
+                    # Convert PIL image to clipboard format (DIB)
+                    image = Image.open(img_p)
+                    output = io.BytesIO()
+                    image.convert("RGB").save(output, "BMP")
+                    data = output.getvalue()[14:] # Offset 14 is the BMP file header
+                    output.close()
+                    
+                    # Windows clipboard API calls
+                    ctypes.windll.user32.OpenClipboard(None)
+                    ctypes.windll.user32.EmptyClipboard()
+                    # CF_DIB = 8
+                    ctypes.windll.user32.SetClipboardData(8, ctypes.windll.kernel32.GlobalAlloc(0x0002, len(data)))
+                    # Copy the BMP binary data to allocated memory
+                    h_clip_mem = ctypes.windll.user32.GetClipboardData(8)
+                    p_clip_mem = ctypes.windll.kernel32.GlobalLock(h_clip_mem)
+                    ctypes.cdll.msvcrt.memcpy(p_clip_mem, data, len(data))
+                    ctypes.windll.kernel32.GlobalUnlock(h_clip_mem)
+                    ctypes.windll.user32.CloseClipboard()
+                else:
+                    # Linux Fallback: On Linux we might use xclip or skip image for now
+                    if player: player.write_log("⚠️ El envío de imágenes vía portapapeles solo está soportado en Windows por ahora.")
                 
                 time.sleep(1.0)
                 # Paste the copied image
