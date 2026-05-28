@@ -65,7 +65,7 @@ import json
 import sys
 try:
     import pygetwindow as gw
-except ImportError:
+except (ImportError, NotImplementedError):
     gw = None
 from PyQt6.QtCore import QMetaObject, Qt
 

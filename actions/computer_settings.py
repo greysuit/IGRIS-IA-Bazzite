@@ -76,23 +76,25 @@ def computer_settings(parameters: dict, response=None, player=None) -> str:
     elif action in ("minimize", "window_minimize"):
         try:
             import pygetwindow as gw
-            window = gw.getActiveWindow()
-            if window:
-                window.minimize()
-                return "Active window minimized."
-            return "No active window found."
-        except Exception as e:
+            if gw:
+                window = gw.getActiveWindow()
+                if window:
+                    window.minimize()
+                    return "Active window minimized."
+            return "No active window found or not supported on Linux."
+        except (Exception, NotImplementedError) as e:
             return f"Failed to minimize window: {e}"
 
     elif action in ("maximize", "window_maximize"):
         try:
             import pygetwindow as gw
-            window = gw.getActiveWindow()
-            if window:
-                window.maximize()
-                return "Active window maximized."
-            return "No active window found."
-        except Exception as e:
+            if gw:
+                window = gw.getActiveWindow()
+                if window:
+                    window.maximize()
+                    return "Active window maximized."
+            return "No active window found or not supported on Linux."
+        except (Exception, NotImplementedError) as e:
             return f"Failed to maximize window: {e}"
 
     return f"Settings action '{action}' is not supported yet, sir."
