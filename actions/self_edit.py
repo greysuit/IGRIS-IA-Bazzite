@@ -63,6 +63,36 @@ def self_edit(parameters: dict, player=None) -> str:
     action = parameters.get("action", "").lower()
     file_ref = parameters.get("file", "")
     
+    # Capa de seguridad Nivel 3: Lista Negra de Autoedición para archivos críticos
+    PROTECTED_FILES = [
+        "core/prompt.txt", "prompt.txt",
+        "actions/terminal_agent.py", "terminal_agent.py",
+        "actions/self_edit.py", "self_edit.py"
+    ]
+    
+    # Deducir file_ref para restore_backup
+    check_file = file_ref
+    if action == "restore_backup":
+        backup_name = parameters.get("backup_name", "")
+        parts = backup_name.rsplit(".", 3)
+        if len(parts) >= 3:
+            check_file = parts[0].replace("__", os.sep)
+
+    if action in ("edit_file", "append_file", "create_file", "restore_backup"):
+        if check_file:
+            try:
+                fp = _resolve_path(check_file)
+                rel_path = str(fp.relative_to(JARVIS_ROOT)).replace(os.sep, "/").lower()
+                for protected in PROTECTED_FILES:
+                    if protected.lower() in rel_path:
+                        return (
+                            "⚠️ ERROR DE SEGURIDAD MULTINIVEL: Se ha rechazado el intento de "
+                            f"modificar el archivo crítico de seguridad '{check_file}'. "
+                            "El sistema prohíbe terminantemente la autoedición de protocolos de prompt, filtros de terminal o rutinas de autoedición."
+                        )
+            except Exception:
+                pass
+    
     # ── READ ──────────────────────────────────────────────────────────────
     if action == "read_file":
         if not file_ref:

@@ -18,7 +18,8 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QGridLayout, QLabel, QPushButton, QLineEdit, QTextEdit, 
     QListWidget, QListWidgetItem, QProgressBar, QDialog, QMessageBox,
-    QComboBox, QCheckBox, QGraphicsDropShadowEffect
+    QComboBox, QCheckBox, QGraphicsDropShadowEffect,
+    QScrollArea, QSlider, QFrame
 )
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal, pyqtSlot, QObject, QTimer, QSize
 from PyQt6.QtGui import QFont, QColor, QIcon, QMouseEvent
@@ -149,9 +150,17 @@ class CustomParticleOrb(QWidget):
         self.web_view.loadFinished.connect(self._on_load_finished)
         
     def _on_load_finished(self, ok):
+        print(f"[ORB] QWebEngineView loadFinished: {ok}")
         if ok:
             self.sync_theme()
             self.set_state("MUTED" if self.ui.muted else "LISTENING")
+            try:
+                from memory.config_manager import load_api_keys
+                cfg = load_api_keys()
+                quality = cfg.get("performance_quality", 80)
+                self.web_view.page().runJavaScript(f"if (window.updatePerformance) window.updatePerformance({quality});")
+            except Exception:
+                pass
 
     def sync_theme(self):
         self.theme_signal.emit()
@@ -179,6 +188,220 @@ class CustomParticleOrb(QWidget):
     def _safe_set_state(self, state: str):
         js_code = f"if (window.updateState) window.updateState('{state}');"
         self.web_view.page().runJavaScript(js_code)
+
+
+def hex_to_bgr(hex_str: str) -> tuple[int, int, int]:
+    """Converts a hex color string (e.g. '#f59e0b' or 'rgba(r,g,b,a)') to a BGR tuple for OpenCV."""
+    hex_str = hex_str.strip()
+    if hex_str.startswith("rgba"):
+        try:
+            parts = hex_str.replace("rgba(", "").replace(")", "").split(",")
+            r, g, b = int(parts[0]), int(parts[1]), int(parts[2])
+            return b, g, r
+        except Exception:
+            return 11, 158, 245
+    elif hex_str.startswith("#"):
+        try:
+            hex_val = hex_str.lstrip("#")
+            r = int(hex_val[0:2], 16)
+            g = int(hex_val[2:4], 16)
+            b = int(hex_val[4:6], 16)
+            return b, g, r
+        except Exception:
+            return 11, 158, 245
+    return 11, 158, 245
+
+
+class CameraPreviewWindow(QWidget):
+    """
+    Floating, borderless, semi-transparent preview window displaying the webcam feed
+    with MediaPipe hand skeleton joints drawn dynamically in the active theme's colors.
+    Supports an EXTERNAL shared tracking thread so gesture tracking keeps running
+    even when this window is minimized or hidden.
+    """
+    def __init__(self, shared_thread=None, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedSize(370, 320)
+
+        # Accept an externally managed thread — do NOT own/stop it on close
+        self.shared_thread = shared_thread
+        self.drag_position = None
+
+        # Outer layout
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+
+        # Transparent holographic frame with rich glassmorphism gradient
+        container = QFrame(self)
+        container.setObjectName("CameraContainer")
+        container.setStyleSheet(f"""
+            QFrame#CameraContainer {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(12, 10, 5, 0.60), stop:1 rgba(2, 2, 2, 0.85));
+                border: 1.8px solid {C_PRI};
+                border-radius: 16px;
+            }}
+            QLabel {{
+                color: {C_TEXT};
+                font-family: 'Century Gothic', sans-serif;
+            }}
+        """)
+
+        # Soft glowing background shadow for holographic floating effect
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(20)
+        shadow.setColor(QColor(0, 0, 0, 190))
+        shadow.setOffset(0, 6)
+        container.setGraphicsEffect(shadow)
+
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(10, 10, 10, 10)
+        c_layout.setSpacing(6)
+
+        # ── Title & window controls ─────────────────────────────────────────
+        title_layout = QHBoxLayout()
+        title_layout.setSpacing(6)
+        
+        self.lbl_title_icon = QLabel(self)
+        if HAS_QTA:
+            self.lbl_title_icon.setPixmap(qta.icon('fa5s.video', color=C_PRI).pixmap(11, 11))
+        
+        title_label = QLabel("PILOTO GESTUAL  ·  HUD", self)
+        title_label.setStyleSheet(
+            f"font-weight: bold; font-size: 9px; letter-spacing: 1.8px; color: {C_PRI}; background: transparent; border: none;"
+        )
+
+        # Minimize button (hides the window but keeps the thread alive)
+        self.btn_min = QPushButton("–", self)
+        self.btn_min.setFixedSize(22, 22)
+        self.btn_min.setToolTip("Minimizar — el tracking continúa en segundo plano")
+        self.btn_min.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: {C_PRI};
+                border: 1px solid rgba(245, 158, 11, 0.4);
+                border-radius: 11px;
+                font-size: 13px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: rgba(245,158,11,0.25);
+                border-color: {C_PRI};
+            }}
+        """)
+        self.btn_min.clicked.connect(self._minimize_to_background)
+
+        # Close button (hides window, thread managed externally)
+        self.btn_close = QPushButton("×", self)
+        self.btn_close.setFixedSize(22, 22)
+        self.btn_close.setToolTip("Ocultar ventana — el tracking sigue activo")
+        self.btn_close.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: {C_PRI};
+                border: 1px solid rgba(245, 158, 11, 0.4);
+                border-radius: 11px;
+                font-size: 14px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #ff3b30;
+                color: white;
+                border-color: #ff3b30;
+            }}
+        """)
+        self.btn_close.clicked.connect(self.hide)  # HIDE, not close — thread keeps running
+
+        title_layout.addWidget(self.lbl_title_icon)
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+        title_layout.addWidget(self.btn_min)
+        title_layout.addWidget(self.btn_close)
+        c_layout.addLayout(title_layout)
+
+        # ── Video stream label with HUD dashed layout ─────────────────────────
+        self.lbl_feed = QLabel(self)
+        self.lbl_feed.setFixedSize(346, 226)
+        self.lbl_feed.setStyleSheet(
+            f"background-color: rgba(0, 0, 0, 0.45); border-radius: 10px; border: 1.2px dashed rgba(245, 158, 11, 0.40);"
+        )
+        self.lbl_feed.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        c_layout.addWidget(self.lbl_feed)
+
+        # ── Status footer ───────────────────────────────────────────────────
+        footer = QHBoxLayout()
+        footer.setSpacing(4)
+        
+        self.lbl_status = QLabel("Buscando mano...", self)
+        self.lbl_status.setStyleSheet(
+            f"font-size: 9px; color: {C_TEXT}; font-style: italic; background: transparent; border: none;"
+        )
+        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        self.lbl_bg_icon = QLabel(self)
+        if HAS_QTA:
+            self.lbl_bg_icon.setPixmap(qta.icon('fa5s.running', color='#00ff88').pixmap(9, 9))
+
+        self.lbl_bg_indicator = QLabel("Activo en 2do plano", self)
+        self.lbl_bg_indicator.setStyleSheet(
+            "font-size: 8px; color: #00ff88; font-weight: bold; background: transparent; border: none;"
+        )
+        self.lbl_bg_indicator.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        
+        footer.addWidget(self.lbl_status)
+        footer.addStretch()
+        footer.addWidget(self.lbl_bg_icon)
+        footer.addWidget(self.lbl_bg_indicator)
+        c_layout.addLayout(footer)
+
+        layout.addWidget(container)
+
+    def _minimize_to_background(self):
+        """Hide the preview window — gesture tracking continues uninterrupted."""
+        self.hide()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.MouseButton.LeftButton and self.drag_position is not None:
+            self.move(event.globalPosition().toPoint() - self.drag_position)
+            event.accept()
+
+    def on_frame_received(self, q_img, status):
+        from PyQt6.QtGui import QPixmap
+        if not self.isVisible():
+            return  # Skip rendering if hidden (saves CPU)
+        pixmap = QPixmap.fromImage(q_img).scaled(
+            self.lbl_feed.size(),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        self.lbl_feed.setPixmap(pixmap)
+        self.lbl_status.setText(f"Piloto: {status}")
+
+    def on_active_changed(self, active):
+        if not active:
+            self.lbl_status.setText("Cámara Desconectada")
+            self.lbl_feed.clear()
+
+    def attach_thread(self, thread):
+        """Connect to an already-running GestureTrackingThread."""
+        self.shared_thread = thread
+        thread.frame_signal.connect(self.on_frame_received)
+        thread.active_signal.connect(self.on_active_changed)
+
+    def closeEvent(self, event):
+        """Override close to hide instead — thread is owned by MainWindow."""
+        event.ignore()
+        self.hide()
 
 
 class ClockWidget(QWidget):
@@ -610,24 +833,65 @@ class DeviceSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("JARVIS Settings Configuration Control")
-        self.resize(550, 740)
+        self.resize(580, 680)
         self.update_style()
         
-        layout = QVBoxLayout(self)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Scroll Area for clean overflow management across all screens
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+        main_layout.addWidget(scroll)
+        
+        content_w = QWidget()
+        content_w.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(content_w)
         layout.setSpacing(10)
+        layout.setContentsMargins(5, 5, 5, 5)
+        scroll.setWidget(content_w)
         
-        layout.addWidget(QLabel("<h2>System Master Configurations</h2>"))
+        layout.addWidget(QLabel(f"<h2 style='color: {C_PRI}; font-family: sans-serif; margin-bottom: 5px;'>System Master Configurations</h2>"))
         
+        # Gemini API Key
         layout.addWidget(QLabel("Gemini API Key:"))
         self.inp_gemini = QLineEdit()
         self.inp_gemini.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addWidget(self.inp_gemini)
         
+        # OpenRouter API Key
         layout.addWidget(QLabel("OpenRouter API Key:"))
         self.inp_openrouter = QLineEdit()
         self.inp_openrouter.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addWidget(self.inp_openrouter)
         
+        # AI Provider Selection
+        layout.addWidget(QLabel("AI Provider / Brain System:"))
+        self.cmb_ai_provider = QComboBox()
+        self.cmb_ai_provider.addItem("Google Gemini (Cloud realtime)", "gemini")
+        self.cmb_ai_provider.addItem("OpenRouter (Cloud fallback)", "openrouter")
+        self.cmb_ai_provider.addItem("Ollama (Local Offline AI)", "ollama")
+        layout.addWidget(self.cmb_ai_provider)
+        
+        # Ollama local configuration fields
+        self.ollama_url_lbl = QLabel("Ollama Server URL (Local AI):")
+        layout.addWidget(self.ollama_url_lbl)
+        self.inp_ollama_url = QLineEdit()
+        self.inp_ollama_url.setPlaceholderText("http://127.0.0.1:11434")
+        layout.addWidget(self.inp_ollama_url)
+        
+        self.ollama_model_lbl = QLabel("Ollama Model Name:")
+        layout.addWidget(self.ollama_model_lbl)
+        self.inp_ollama_model = QLineEdit()
+        self.inp_ollama_model.setPlaceholderText("gemma2:2b (or llama3, phi3)")
+        layout.addWidget(self.inp_ollama_model)
+        
+        # Connect AI Provider index changed to show/hide Ollama inputs
+        self.cmb_ai_provider.currentIndexChanged.connect(self._toggle_ollama_fields)
+        
+        # Active Voice Model
         layout.addWidget(QLabel("Active Voice Model:"))
         self.cmb_voice = QComboBox()
         self.voices = [
@@ -644,34 +908,108 @@ class DeviceSettingsDialog(QDialog):
             self.cmb_voice.addItem(desc, val)
         layout.addWidget(self.cmb_voice)
         
+        # Theme Palette Scheme
         layout.addWidget(QLabel("Theme Palette Scheme:"))
         self.cmb_theme = QComboBox()
         for k in THEMES.keys():
             self.cmb_theme.addItem(k.upper(), k)
         layout.addWidget(self.cmb_theme)
         
+        # Timezone configuration
+        layout.addWidget(QLabel("Timezone / Zona Horaria:"))
+        self.cmb_timezone = QComboBox()
+        self.timezones = [
+            ("America/Lima", "Perú (GMT-5) 🇵🇪"),
+            ("America/Bogota", "Colombia (GMT-5) 🇨🇴"),
+            ("America/Argentina/Buenos_Aires", "Argentina (GMT-3) 🇦🇷"),
+            ("America/Santiago", "Chile (GMT-3) 🇨🇱"),
+            ("America/Mexico_City", "México (GMT-6) 🇲🇽"),
+            ("America/Caracas", "Venezuela (GMT-4) 🇻🇪"),
+            ("Europe/Madrid", "España (GMT+1) 🇪🇸"),
+            ("America/New_York", "Estados Unidos (GMT-5) 🇺🇸")
+        ]
+        for val, desc in self.timezones:
+            self.cmb_timezone.addItem(desc, val)
+        layout.addWidget(self.cmb_timezone)
+        
+        # User Name configuration
+        layout.addWidget(QLabel("Nombre del Usuario (¿Cómo desea que lo llame?):"))
+        self.inp_user_name = QLineEdit()
+        self.inp_user_name.setPlaceholderText("Ej: Señor Leguion")
+        layout.addWidget(self.inp_user_name)
+        
+        # Audio input/output
         layout.addWidget(QLabel("Microphone Input Device:"))
         self.cmb_mic = QComboBox()
         layout.addWidget(self.cmb_mic)
+
+        # Mic Sensitivity slider (Noise Gate)
+        layout.addWidget(QLabel(f"<hr style='border: 0; border-top: 1px solid {C_BORDER}; margin: 5px 0;'>"))
+        sens_layout = QHBoxLayout()
+        sens_layout.addWidget(QLabel("Sensibilidad del Micrófono (Puerta de Ruido):"))
+        self.lbl_mic_sens_val = QLabel("0.003")
+        self.lbl_mic_sens_val.setStyleSheet(f"font-weight: bold; color: {C_PRI};")
+        sens_layout.addStretch()
+        sens_layout.addWidget(self.lbl_mic_sens_val)
+        layout.addLayout(sens_layout)
+
+        self.sld_mic_sens = QSlider(Qt.Orientation.Horizontal)
+        self.sld_mic_sens.setRange(5, 100)  # 0.0005 to 0.010
+        self.sld_mic_sens.setValue(30)  # Default: 0.003
+        self.sld_mic_sens.valueChanged.connect(lambda v: self.lbl_mic_sens_val.setText(f"{v/10000:.4f}"))
+        layout.addWidget(self.sld_mic_sens)
         
         layout.addWidget(QLabel("Speaker Output Device:"))
         self.cmb_speaker = QComboBox()
         layout.addWidget(self.cmb_speaker)
+
+        # Camera input selection (Gesture Pilot)
+        layout.addWidget(QLabel("Active Camera Device (Gesture Pilot):"))
+        self.cmb_camera = QComboBox()
+        layout.addWidget(self.cmb_camera)
         
+        # DroidCam IP stream input
+        layout.addWidget(QLabel("DroidCam IP Address or URL (Optional - bypasses green screen):"))
+        self.inp_camera_ip = QLineEdit()
+        self.inp_camera_ip.setPlaceholderText("Ej: 192.168.1.50  (o http://192.168.1.50:4747/video)")
+        layout.addWidget(self.inp_camera_ip)
+        
+        # Resource Slider
+        layout.addWidget(QLabel(f"<hr style='border: 0; border-top: 1px solid {C_BORDER}; margin: 8px 0;'><h3 style='color: {C_PRI}; font-family: sans-serif; margin: 0;'>Resource & Visual Management</h3>"))
+        perf_layout = QHBoxLayout()
+        perf_layout.addWidget(QLabel("Visual Performance Quality (Caps RAM/GPU):"))
+        self.lbl_performance_val = QLabel("80%")
+        self.lbl_performance_val.setStyleSheet("font-weight: bold; color: #00ff88;")
+        perf_layout.addStretch()
+        perf_layout.addWidget(self.lbl_performance_val)
+        layout.addLayout(perf_layout)
+        
+        self.sld_performance = QSlider(Qt.Orientation.Horizontal)
+        self.sld_performance.setRange(1, 100)
+        self.sld_performance.setValue(80)
+        self.sld_performance.valueChanged.connect(lambda v: self.lbl_performance_val.setText(f"{v}%"))
+        layout.addWidget(self.sld_performance)
+        
+        # GPU Acceleration Check
         self.chk_gpu = QCheckBox("Enable GPU Rendering Acceleration")
         layout.addWidget(self.chk_gpu)
         
         # Spotify Developer Integration Section
-        layout.addWidget(QLabel("<h3>Spotify Developer Integration</h3>"))
+        layout.addWidget(QLabel(f"<hr style='border: 0; border-top: 1px solid {C_BORDER}; margin: 8px 0;'><h3 style='color: {C_PRI}; font-family: sans-serif; margin: 0;'>Spotify Integration</h3>"))
+        
+        self.chk_advanced_spotify = QCheckBox("Configuración de desarrollador avanzada (Opcional)")
+        layout.addWidget(self.chk_advanced_spotify)
         
         self.spotify_id_lbl = QLabel("Spotify Client ID:")
         layout.addWidget(self.spotify_id_lbl)
         self.inp_spotify_id = QLineEdit()
+        self.inp_spotify_id.setPlaceholderText("Dejar en blanco para usar credenciales de JARVIS")
         layout.addWidget(self.inp_spotify_id)
         
         self.spotify_secret_lbl = QLabel("Spotify Client Secret:")
         layout.addWidget(self.spotify_secret_lbl)
         self.inp_spotify_secret = QLineEdit()
+        self.inp_spotify_secret.setPlaceholderText("Dejar en blanco para usar credenciales de JARVIS")
         self.inp_spotify_secret.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addWidget(self.inp_spotify_secret)
         
@@ -681,8 +1019,10 @@ class DeviceSettingsDialog(QDialog):
         self.inp_spotify_uri.setText("http://127.0.0.1:8888/callback")
         layout.addWidget(self.inp_spotify_uri)
         
+        self.chk_advanced_spotify.toggled.connect(self._toggle_advanced_spotify)
+        
         spotify_auth_layout = QHBoxLayout()
-        self.btn_spotify_login = QPushButton("Conectar con Spotify")
+        self.btn_spotify_login = QPushButton("Conectar con Spotify (Google/Email)")
         self.lbl_spotify_status = QLabel("Consultando estado...")
         self.lbl_spotify_status.setStyleSheet("color: #a3a3a3; font-style: italic;")
         spotify_auth_layout.addWidget(self.btn_spotify_login)
@@ -691,6 +1031,7 @@ class DeviceSettingsDialog(QDialog):
         
         self.btn_spotify_login.clicked.connect(self.connect_spotify)
         
+        # Bottom Save button
         btn_layout = QHBoxLayout()
         self.btn_save = QPushButton("Save Configurations")
         btn_layout.addStretch()
@@ -699,8 +1040,44 @@ class DeviceSettingsDialog(QDialog):
         
         self.btn_save.clicked.connect(self.save)
         self.load_settings()
-        
+
+    def _toggle_ollama_fields(self):
+        is_ollama = (self.cmb_ai_provider.currentData() == "ollama")
+        self.ollama_url_lbl.setVisible(is_ollama)
+        self.inp_ollama_url.setVisible(is_ollama)
+        self.ollama_model_lbl.setVisible(is_ollama)
+        self.inp_ollama_model.setVisible(is_ollama)
+
+    def _toggle_advanced_spotify(self, checked):
+        self.spotify_id_lbl.setVisible(checked)
+        self.inp_spotify_id.setVisible(checked)
+        self.spotify_secret_lbl.setVisible(checked)
+        self.inp_spotify_secret.setVisible(checked)
+        self.spotify_uri_lbl.setVisible(checked)
+        self.inp_spotify_uri.setVisible(checked)
+
     def load_settings(self):
+        # Populate camera choices dynamically using QtMultimedia
+        self.cmb_camera.clear()
+        try:
+            from PyQt6.QtMultimedia import QMediaDevices
+            cameras = QMediaDevices.videoInputs()
+            if not cameras:
+                self.cmb_camera.addItem("No se detectaron cámaras", -1)
+                # Fallback options
+                self.cmb_camera.addItem("Cámara Principal (Índice 0)", 0)
+                self.cmb_camera.addItem("Cámara Secundaria (Índice 1)", 1)
+                self.cmb_camera.addItem("Cámara Externa (Índice 2)", 2)
+            else:
+                for i, cam in enumerate(cameras):
+                    desc = cam.description()
+                    self.cmb_camera.addItem(f"{desc} (Índice {i})", i)
+        except Exception:
+            # Absolute fallback
+            self.cmb_camera.addItem("Cámara Principal (Índice 0)", 0)
+            self.cmb_camera.addItem("Cámara Secundaria (Índice 1)", 1)
+            self.cmb_camera.addItem("Cámara Externa (Índice 2)", 2)
+
         try:
             import sounddevice as sd
             devices = sd.query_devices()
@@ -725,6 +1102,20 @@ class DeviceSettingsDialog(QDialog):
             self.inp_openrouter.setText(cfg.get("openrouter_api_key", ""))
             self.chk_gpu.setChecked(cfg.get("gpu_acceleration", False))
             
+            # AI Provider
+            prov = cfg.get("ai_provider", "gemini")
+            idx = self.cmb_ai_provider.findData(prov)
+            if idx >= 0: self.cmb_ai_provider.setCurrentIndex(idx)
+            
+            self.inp_ollama_url.setText(cfg.get("ollama_url", "http://127.0.0.1:11434"))
+            self.inp_ollama_model.setText(cfg.get("ollama_model", "gemma2:2b"))
+            self._toggle_ollama_fields()
+            
+            # Slider
+            val = cfg.get("performance_quality", 80)
+            self.sld_performance.setValue(val)
+            self.lbl_performance_val.setText(f"{val}%")
+            
             voice = cfg.get("jarvis_voice", "Aoede")
             for idx in range(self.cmb_voice.count()):
                 if self.cmb_voice.itemData(idx) == voice:
@@ -736,18 +1127,52 @@ class DeviceSettingsDialog(QDialog):
             if idx >= 0:
                 self.cmb_theme.setCurrentIndex(idx)
                 
+            # Timezone
+            tz = cfg.get("timezone", "America/Lima")
+            idx_tz = self.cmb_timezone.findData(tz)
+            if idx_tz >= 0:
+                self.cmb_timezone.setCurrentIndex(idx_tz)
+                
+            # User Name
+            self.inp_user_name.setText(cfg.get("user_name", ""))
+                
             mic = cfg.get("mic_device", "")
             idx = self.cmb_mic.findData(mic)
             if idx >= 0: self.cmb_mic.setCurrentIndex(idx)
+            
+            # Cargar sensibilidad del micrófono
+            mic_sens = float(cfg.get("mic_sensitivity", 0.003))
+            self.sld_mic_sens.setValue(int(mic_sens * 10000))
+            self.lbl_mic_sens_val.setText(f"{mic_sens:.4f}")
             
             spk = cfg.get("speaker_device", "")
             idx = self.cmb_speaker.findData(spk)
             if idx >= 0: self.cmb_speaker.setCurrentIndex(idx)
             
+            # Select saved camera device
+            camera_device = cfg.get("camera_device", 0)
+            try:
+                camera_device = int(camera_device)
+            except Exception:
+                camera_device = 0
+            idx_cam = self.cmb_camera.findData(camera_device)
+            if idx_cam >= 0:
+                self.cmb_camera.setCurrentIndex(idx_cam)
+            
+            # Load camera IP Address / URL
+            self.inp_camera_ip.setText(cfg.get("camera_ip", ""))
+            
             # Load Spotify configs
-            self.inp_spotify_id.setText(cfg.get("spotify_client_id", ""))
-            self.inp_spotify_secret.setText(cfg.get("spotify_client_secret", ""))
+            spotify_id = cfg.get("spotify_client_id", "")
+            spotify_secret = cfg.get("spotify_client_secret", "")
+            self.inp_spotify_id.setText(spotify_id)
+            self.inp_spotify_secret.setText(spotify_secret)
             self.inp_spotify_uri.setText(cfg.get("spotify_redirect_uri", "http://127.0.0.1:8888/callback"))
+            
+            # If custom developer keys exist, enable the advanced checkbox, otherwise hide them by default
+            has_custom = bool(spotify_id or spotify_secret)
+            self.chk_advanced_spotify.setChecked(has_custom)
+            self._toggle_advanced_spotify(has_custom)
             
             # Check Spotify Auth status
             self.lbl_spotify_status.setText(self.check_spotify_auth_status())
@@ -760,14 +1185,28 @@ class DeviceSettingsDialog(QDialog):
             from memory.config_manager import save_api_keys
             theme_val = self.cmb_theme.currentData()
             
+            # Camera device fallback
+            camera_device_val = self.cmb_camera.currentData()
+            if camera_device_val is None:
+                camera_device_val = 0
+
             cfg = {
                 "gemini_api_key": self.inp_gemini.text().strip(),
                 "openrouter_api_key": self.inp_openrouter.text().strip(),
+                "ai_provider": self.cmb_ai_provider.currentData(),
+                "ollama_url": self.inp_ollama_url.text().strip(),
+                "ollama_model": self.inp_ollama_model.text().strip(),
+                "performance_quality": self.sld_performance.value(),
                 "jarvis_voice": self.cmb_voice.currentData(),
                 "jarvis_theme": theme_val,
                 "gpu_acceleration": self.chk_gpu.isChecked(),
                 "mic_device": self.cmb_mic.currentData(),
+                "mic_sensitivity": self.sld_mic_sens.value() / 10000.0,
                 "speaker_device": self.cmb_speaker.currentData(),
+                "camera_device": camera_device_val,
+                "camera_ip": self.inp_camera_ip.text().strip(),
+                "timezone": self.cmb_timezone.currentData(),
+                "user_name": self.inp_user_name.text().strip() or "Señor",
                 "spotify_client_id": self.inp_spotify_id.text().strip(),
                 "spotify_client_secret": self.inp_spotify_secret.text().strip(),
                 "spotify_redirect_uri": self.inp_spotify_uri.text().strip()
@@ -779,6 +1218,11 @@ class DeviceSettingsDialog(QDialog):
             parent = self.parent()
             if parent:
                 parent.update_theme_styles()
+                # Dynamically update WebEngine performance on the fly!
+                if hasattr(parent, "orb") and parent.orb:
+                    parent.orb.web_view.page().runJavaScript(
+                        f"if (window.updatePerformance) window.updatePerformance({self.sld_performance.value()});"
+                    )
                 
             QMessageBox.information(self, "Success", "JARVIS Configurations saved, sir.")
             self.accept()
@@ -787,13 +1231,11 @@ class DeviceSettingsDialog(QDialog):
 
     def check_spotify_auth_status(self):
         try:
-            client_id = self.inp_spotify_id.text().strip()
-            client_secret = self.inp_spotify_secret.text().strip()
-            redirect_uri = self.inp_spotify_uri.text().strip()
+            # If left blank, we fallback to pre-filled credentials
+            client_id = self.inp_spotify_id.text().strip() or "455d312ba37a4e0c8be373b53f6305a4"
+            client_secret = self.inp_spotify_secret.text().strip() or "5a075d9e504c4f3cb4cc6c5e533d1b4a"
+            redirect_uri = self.inp_spotify_uri.text().strip() or "http://127.0.0.1:8888/callback"
             
-            if not client_id or not client_secret:
-                return "Falta configurar credenciales"
-                
             import spotipy
             from spotipy.oauth2 import SpotifyOAuth
             sp_oauth = SpotifyOAuth(
@@ -804,68 +1246,226 @@ class DeviceSettingsDialog(QDialog):
             )
             token = sp_oauth.get_cached_token()
             if token:
-                return "✅ Conectado"
+                self.lbl_spotify_status.setStyleSheet("color: #1DB954; font-weight: bold;")
+                return "Conectado"
             else:
-                return "⚠️ Desconectado"
+                self.lbl_spotify_status.setStyleSheet("color: #e11d48; font-weight: bold;")
+                return "Desconectado"
         except Exception as e:
+            self.lbl_spotify_status.setStyleSheet("color: #e11d48; font-style: italic;")
             return f"Error: {e}"
 
     def connect_spotify(self):
-        client_id = self.inp_spotify_id.text().strip()
-        client_secret = self.inp_spotify_secret.text().strip()
-        redirect_uri = self.inp_spotify_uri.text().strip()
-        
-        if not client_id or not client_secret:
-            QMessageBox.warning(self, "Spotify API", "Por favor, ingresa el Client ID y el Client Secret primero.")
-            return
-            
-        # Temporarily save these settings so that the background OAuth flow can read them
+        """Launch a local HTTP server that handles the Spotify OAuth flow and opens
+        the branded spotify_auth.html page in the system default browser.
+        The user clicks 'Connect', the browser is redirected to Spotify's login,
+        and the callback is caught by our local server — no manual URL copying needed."""
+        import threading
+        import webbrowser
+        import socket
+        from pathlib import Path as _Path
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        import urllib.parse
+
+        client_id = self.inp_spotify_id.text().strip() or "455d312ba37a4e0c8be373b53f6305a4"
+        client_secret = self.inp_spotify_secret.text().strip() or "5a075d9e504c4f3cb4cc6c5e533d1b4a"
+        redirect_uri = "http://127.0.0.1:8765/callback"
+
+        # Save credentials
         try:
             from memory.config_manager import load_api_keys, save_api_keys
             cfg = load_api_keys()
-            cfg["spotify_client_id"] = client_id
-            cfg["spotify_client_secret"] = client_secret
+            cfg["spotify_client_id"] = self.inp_spotify_id.text().strip()
+            cfg["spotify_client_secret"] = self.inp_spotify_secret.text().strip()
             cfg["spotify_redirect_uri"] = redirect_uri
             save_api_keys(cfg)
         except Exception:
             pass
-            
-        self.lbl_spotify_status.setText("⏳ Abriendo navegador...")
+
+        self.lbl_spotify_status.setText("Abriendo navegador...")
+        self.lbl_spotify_status.setStyleSheet("color: #fbbf24; font-style: italic;")
         self.btn_spotify_login.setEnabled(False)
-        
-        import threading
-        def auth_worker():
-            try:
-                import spotipy
-                from spotipy.oauth2 import SpotifyOAuth
-                
-                sp_oauth = SpotifyOAuth(
-                    client_id=client_id,
-                    client_secret=client_secret,
-                    redirect_uri=redirect_uri,
-                    scope="user-modify-playback-state user-read-playback-state user-read-currently-playing",
-                    open_browser=True
-                )
-                
-                # Triggers browser and starts spotipy's built-in local redirect listener
-                token_info = sp_oauth.get_access_token(as_dict=False)
-                if token_info:
-                    QTimer.singleShot(0, self.spotify_auth_success)
+
+        auth_html_path = _Path(__file__).parent / "assets" / "spotify_auth.html"
+
+        # ── Build SpotifyOAuth URL ───────────────────────────────────────────
+        try:
+            import spotipy
+            from spotipy.oauth2 import SpotifyOAuth
+            sp_oauth = SpotifyOAuth(
+                client_id=client_id,
+                client_secret=client_secret,
+                redirect_uri=redirect_uri,
+                scope="user-modify-playback-state user-read-playback-state user-read-currently-playing",
+                open_browser=False,
+                cache_path=str(_Path(__file__).parent / ".spotify_cache")
+            )
+            auth_url = sp_oauth.get_authorize_url()
+        except Exception as e:
+            self.spotify_auth_failed(f"Error generando URL de auth: {e}")
+            return
+
+        auth_complete = threading.Event()
+        auth_result = {"success": False, "error": ""}
+
+        # ── Local HTTP server handles /callback + /spotify/* API ─────────────
+        outer_self = self
+
+        class _SpotifyCallbackHandler(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass  # Silence access logs
+
+            def _send_json(self, data: dict, code: int = 200):
+                import json as _json
+                body = _json.dumps(data).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def _serve_file(self, path: str):
+                try:
+                    with open(path, "rb") as f:
+                        content = f.read()
+                    ext = path.rsplit(".", 1)[-1]
+                    ctype = {"html": "text/html", "css": "text/css", "js": "application/javascript"}.get(ext, "text/plain")
+                    self.send_response(200)
+                    self.send_header("Content-Type", f"{ctype}; charset=utf-8")
+                    self.send_header("Content-Length", str(len(content)))
+                    self.end_headers()
+                    self.wfile.write(content)
+                except Exception:
+                    self.send_response(404)
+                    self.end_headers()
+
+            def do_OPTIONS(self):
+                self.send_response(200)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "Content-Type")
+                self.end_headers()
+
+            def do_GET(self):
+                parsed = urllib.parse.urlparse(self.path)
+                qs = urllib.parse.parse_qs(parsed.query)
+
+                if parsed.path == "/" or parsed.path == "/index.html":
+                    self._serve_file(str(auth_html_path))
+
+                elif parsed.path == "/callback":
+                    # Spotify redirected back with ?code=...
+                    code = qs.get("code", [None])[0]
+                    error = qs.get("error", [None])[0]
+                    if error:
+                        auth_result["error"] = error
+                        self._send_json({"status": "error", "message": error})
+                        auth_complete.set()
+                    elif code:
+                        try:
+                            sp_oauth.get_access_token(code, as_dict=False)
+                            auth_result["success"] = True
+                            # Serve a clean, beautiful success page without emojis
+                            success_html = (
+                                "<!DOCTYPE html>"
+                                "<html lang='es'>"
+                                "<head>"
+                                "  <meta charset='utf-8'>"
+                                "  <meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+                                "  <title>JARVIS - Conectado</title>"
+                                "  <link href='https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap' rel='stylesheet'>"
+                                "  <style>"
+                                "    body { background: #060400; color: #fde68a; font-family: 'Outfit', sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }"
+                                "    .container { text-align: center; background: rgba(28, 20, 4, 0.85); border: 1.5px solid rgba(245, 158, 11, 0.4); border-radius: 20px; padding: 40px; box-shadow: 0 0 40px rgba(29, 185, 84, 0.15); max-width: 90%; width: 400px; animation: entry 0.5s ease-out; }"
+                                "    h1 { color: #fff; font-size: 24px; margin-top: 15px; margin-bottom: 10px; }"
+                                "    p { color: rgba(253, 230, 138, 0.6); font-size: 14px; line-height: 1.5; }"
+                                "    .icon-wrapper { display: flex; justify-content: center; margin-bottom: 20px; }"
+                                "    @keyframes entry { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }"
+                                "  </style>"
+                                "</head>"
+                                "<body>"
+                                "  <div class='container'>"
+                                "    <div class='icon-wrapper'>"
+                                "      <svg width='64' height='64' viewBox='0 0 24 24' fill='none' stroke='#1DB954' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+                                "        <path d='M22 11.08V12a10 10 0 1 1-5.93-9.14'></path>"
+                                "        <polyline points='22 4 12 14.01 9 11.01'></polyline>"
+                                "      </svg>"
+                                "    </div>"
+                                "    <h1>Spotify Conectado</h1>"
+                                "    <p>La vinculación con JARVIS se ha completado con éxito.<br>Ya puedes cerrar esta pestaña y volver a la aplicación.</p>"
+                                "  </div>"
+                                "</body>"
+                                "</html>"
+                            ).encode("utf-8")
+
+                            self.send_response(200)
+                            self.send_header("Content-Type", "text/html; charset=utf-8")
+                            self.end_headers()
+                            self.wfile.write(success_html)
+                            auth_complete.set()
+                        except Exception as ex:
+                            auth_result["error"] = str(ex)
+                            self._send_json({"status": "error", "message": str(ex)})
+                            auth_complete.set()
+                    else:
+                        self._send_json({"status": "error", "message": "Sin código"})
+
+                elif parsed.path == "/spotify/status":
+                    connected = auth_result["success"]
+                    self._send_json({"connected": connected})
+
                 else:
-                    QTimer.singleShot(0, lambda: self.spotify_auth_failed("No se obtuvo token."))
-            except Exception as e:
-                QTimer.singleShot(0, lambda: self.spotify_auth_failed(str(e)))
-                
-        threading.Thread(target=auth_worker, daemon=True).start()
+                    self.send_response(404)
+                    self.end_headers()
+
+            def do_POST(self):
+                parsed = urllib.parse.urlparse(self.path)
+                if parsed.path == "/spotify/auth":
+                    # Pass the authentication URL back to the webpage so it redirects in-place
+                    self._send_json({"status": "ok", "message": "Auth URL generated", "auth_url": auth_url})
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+
+        def _run_server():
+            try:
+                server = HTTPServer(("127.0.0.1", 8765), _SpotifyCallbackHandler)
+                server.timeout = 1.0
+                deadline = 300  # Max 5 minutes
+                elapsed = 0
+                while not auth_complete.is_set() and elapsed < deadline:
+                    server.handle_request()
+                    elapsed += 1
+                server.server_close()
+
+                if auth_result["success"]:
+                    QTimer.singleShot(0, outer_self.spotify_auth_success)
+                else:
+                    err = auth_result.get("error", "Tiempo agotado o cancelado")
+                    QTimer.singleShot(0, lambda: outer_self.spotify_auth_failed(err))
+            except Exception as ex:
+                QTimer.singleShot(0, lambda: outer_self.spotify_auth_failed(str(ex)))
+
+        threading.Thread(target=_run_server, daemon=True).start()
+
+        # Open the Spotify authorization page directly in the user's default browser
+        def _open_browser():
+            import time
+            time.sleep(0.5)  # Let server start
+            webbrowser.open(auth_url)
+
+        threading.Thread(target=_open_browser, daemon=True).start()
 
     def spotify_auth_success(self):
         self.btn_spotify_login.setEnabled(True)
-        self.lbl_spotify_status.setText("✅ Conectado")
+        self.lbl_spotify_status.setText("Conectado")
+        self.lbl_spotify_status.setStyleSheet("color: #1DB954; font-weight: bold;")
         QMessageBox.information(self, "Spotify API", "¡Autenticación con Spotify exitosa, sir!")
 
     def spotify_auth_failed(self, error):
         self.btn_spotify_login.setEnabled(True)
-        self.lbl_spotify_status.setText("❌ Error")
+        self.lbl_spotify_status.setText("Error")
+        self.lbl_spotify_status.setStyleSheet("color: #e11d48; font-weight: bold;")
         QMessageBox.critical(self, "Spotify API Error", f"Fallo al conectar: {error}")
 
     def update_style(self):
@@ -910,9 +1510,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.ui = ui
         self.ui._win = self
+        self.camera_window = None
         
         self.resize(1050, 760)
         self.setMinimumSize(1000, 750)
+        self.setWindowTitle("JARVIS-AI-HUD")
         
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -937,6 +1539,7 @@ class MainWindow(QMainWindow):
         header_bar.addStretch()
         
         self.btn_settings = QPushButton()
+        self.btn_camera = QPushButton()
         self.btn_play = QPushButton()
         self.btn_folder = QPushButton()
         self.btn_min = QPushButton()
@@ -944,6 +1547,7 @@ class MainWindow(QMainWindow):
         
         self.head_buttons = [
             (self.btn_settings, 'fa5s.cog', self._open_settings),
+            (self.btn_camera, 'fa5s.video', self._toggle_camera_gestures),
             (self.btn_play, 'fa5s.play', self._toggle_mute),
             (self.btn_folder, 'fa5s.folder', self._open_folder),
             (self.btn_min, 'fa5s.window-minimize', self.showMinimized),
@@ -956,7 +1560,6 @@ class MainWindow(QMainWindow):
             header_bar.addWidget(btn)
             
         self.orb = CustomParticleOrb(self.ui, self.central_widget)
-        self.orb.lower()
         
         # Symmetrical Bento overlay dashboard container at bottom half
         self.bento_container = QWidget(self.central_widget)
@@ -1054,7 +1657,6 @@ class MainWindow(QMainWindow):
         by = H - bh - 60   # positioned flush directly above speech subtitles
         self.bento_container.setGeometry(15, by, W - 30, bh)
         
-        self.orb.lower()
         self.bento_container.raise_()
         self.txt_console.raise_()
         self.clock_w.raise_()
@@ -1079,6 +1681,72 @@ class MainWindow(QMainWindow):
         if self.ui.muted:
             if self.ui.on_stop_command:
                 self.ui.on_stop_command()
+
+    def _toggle_camera_gestures(self):
+        """Toggle camera gesture preview. The GestureTrackingThread persists in the background
+        even when the preview window is hidden, so gestures keep working at all times."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        # ── If tracking thread is not running yet, start it ─────────────────
+        if not hasattr(self, '_gesture_thread') or self._gesture_thread is None:
+            try:
+                from actions.gesture_engine import GestureTrackingThread
+                # Resolve camera source from config
+                camera_index = 0
+                try:
+                    from memory.config_manager import load_api_keys
+                    cfg = load_api_keys()
+                    camera_ip = cfg.get("camera_ip", "").strip()
+                    if camera_ip:
+                        if camera_ip.startswith(("http://", "https://")):
+                            camera_index = camera_ip
+                        elif ":" in camera_ip:
+                            camera_index = f"http://{camera_ip}/video"
+                        else:
+                            camera_index = f"http://{camera_ip}:4747/video"
+                        import urllib.request
+                        try:
+                            urllib.request.urlopen(camera_index, timeout=0.5)
+                        except Exception:
+                            camera_index = int(cfg.get("camera_device", 0))
+                    else:
+                        camera_index = int(cfg.get("camera_device", 0))
+                except Exception:
+                    camera_index = 0
+
+                self._gesture_thread = GestureTrackingThread(
+                    camera_index=camera_index,
+                    theme_bgr=hex_to_bgr(C_PRI),
+                    text_bgr=hex_to_bgr(C_TEXT)
+                )
+                self._gesture_thread.start()
+                print("[UI] Gesture tracking thread started (background).")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Fallo al iniciar la cámara gestual:\n{e}")
+                return
+
+        # ── Toggle the preview window ────────────────────────────────────────
+        if self.camera_window is None:
+            self.camera_window = CameraPreviewWindow(shared_thread=self._gesture_thread, parent=None)
+            self.camera_window.attach_thread(self._gesture_thread)
+            self.camera_window.show()
+            self.camera_window.move(50, 50)
+            print("[UI] Camera Preview Window shown.")
+        else:
+            if self.camera_window.isVisible():
+                self.camera_window.hide()
+                print("[UI] Camera Preview Window hidden — tracking continues.")
+            else:
+                self.camera_window.show()
+                self.camera_window.raise_()
+                print("[UI] Camera Preview Window restored.")
+
+    def stop_gesture_thread(self):
+        """Cleanly stop the background gesture tracking thread on JARVIS exit."""
+        if hasattr(self, '_gesture_thread') and self._gesture_thread is not None:
+            self._gesture_thread.stop()
+            self._gesture_thread = None
+            print("[UI] Gesture tracking thread stopped.")
 
     def _setup_tray_icon(self):
         from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
@@ -1130,6 +1798,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if getattr(self, "_force_close", False):
+            # Stop gesture tracking thread on full exit
+            self.stop_gesture_thread()
             event.accept()
         else:
             event.ignore()
@@ -1168,6 +1838,7 @@ class MockRoot:
 class JarvisUI:
     def __init__(self, face_path=""):
         self.app = QApplication.instance() or QApplication(sys.argv)
+        self.app.setQuitOnLastWindowClosed(False)
         self.root = MockRoot(self.app)
         
         self.muted = False

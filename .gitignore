@@ -9,10 +9,20 @@ venv.bak/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *$py.class
+
 # Config and Sensitive Files
 config/api_keys.json
 config/rules.json
+config/vision_guardian_state.json
+config/whatsapp_contacts.json
+config/hand_landmarker.task
+config/last_captured_screen.png
+config/.spotify_cache
+config/vosk_model/
 custom_tools.json
+
+# Backups
+backups/
 
 # Logs
 *.log

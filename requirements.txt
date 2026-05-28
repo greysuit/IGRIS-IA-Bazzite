@@ -33,3 +33,4 @@ cryptography
 eventlet
 vosk
 qtawesome
+mediapipe

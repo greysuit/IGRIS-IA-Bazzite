@@ -24,7 +24,9 @@ if _gpu_enabled:
         "--enable-gpu-rasterization "
         "--enable-zero-copy "
         "--num-raster-threads=4 "
-        "--js-flags=--max-old-space-size=1024"
+        "--renderer-process-limit=1 "
+        "--disable-site-isolation-trials "
+        "--js-flags=--max-old-space-size=256"
     )
     # Enable hardware acceleration backends for Qt
     os.environ["QSG_RHI_BACKEND"] = "d3d11" # Force Direct3D 11 for hardware rendering on Windows
@@ -35,6 +37,7 @@ else:
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
         "--enable-low-end-device-mode "
         "--renderer-process-limit=1 "
+        "--disable-site-isolation-trials "
         "--js-flags=--max-old-space-size=64 "
         "--disable-gpu-shader-disk-cache "
         "--disable-dev-shm-usage "
@@ -176,10 +179,12 @@ try:
     from actions.file_controller   import file_controller
 except ImportError:
     file_controller = None
+
 try:
-    from actions.code_helper       import code_helper
+    from actions.code_helper import code_helper
 except ImportError:
     code_helper = None
+
 try:
     from actions.dev_agent         import dev_agent
 except ImportError:
@@ -368,21 +373,8 @@ except Exception:
     pass
 
 # ── Suppress console windows from all child subprocesses ─────────────────────
-if sys.platform == "win32":
-    try:
-        import ctypes as _ctypes
-        if _ctypes.windll.kernel32.GetConsoleWindow() == 0:
-            import subprocess as _sp
-            _CREATE_NO_WINDOW = 0x08000000
-            _orig_Popen = _sp.Popen
-            class _NoCmdPopen(_orig_Popen):
-                def __init__(self, *args, **kwargs):
-                    kwargs["creationflags"] = kwargs.get("creationflags", 0) | _CREATE_NO_WINDOW
-                    super().__init__(*args, **kwargs)
-            _sp.Popen = _NoCmdPopen
-            print("[JARVIS] subprocess.Popen patched: CREATE_NO_WINDOW active")
-    except Exception as _e:
-        print(f"[JARVIS] Could not patch subprocess: {_e}")
+# Disabled global Popen patch to allow interactive GUI applications (cmd, notepad, etc.) to show on screen.
+# Background CLI tasks already use CREATE_NO_WINDOW explicitly in actions/terminal_agent.py.
 
 LIVE_MODEL          = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 CHANNELS            = 1
@@ -423,7 +415,15 @@ def _get_jarvis_voice() -> str:
 
 def _load_system_prompt() -> str:
     try:
-        return PROMPT_PATH.read_text(encoding="utf-8")
+        prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
+        try:
+            cfg = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+            user_name = cfg.get("user_name", "Señor").strip()
+            if user_name:
+                prompt_text += f"\n\n## PERSONALIZACIÓN DEL USUARIO\nEl nombre del usuario es '{user_name}'. Dirígete a él como '{user_name}' (o variantes cortas respetuosas como 'señor {user_name}') de manera leal y natural en cada interacción, a menos que él te pida explícitamente cambiar su nombre."
+        except Exception:
+            pass
+        return prompt_text
     except Exception:
         return (
             "You are JARVIS, Tony Stark's AI assistant. "
@@ -439,6 +439,23 @@ def _clean_transcript(text: str) -> str:
     return text.strip()
 
 TOOL_DECLARATIONS = [
+    {
+        "name": "camera_bus",
+        "description": (
+            "Controla el subsistema de pilotaje y navegación gestual por cámara de JARVIS. "
+            "Permite activar, desactivar o alternar el control gestual del mouse usando la webcam en segundo plano."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "enable (activar/conectar cámara gestual) | disable (desactivar/apagar cámara gestual) | toggle (alternar estado)"
+                }
+            },
+            "required": ["action"]
+        }
+    },
     {
         "name": "jarvis_ui_control",
         "description": (
@@ -1990,6 +2007,16 @@ class JarvisLive:
         self.ui             = ui
         self.session        = None
         self.is_sleeping    = False
+        # Cargar sensibilidad del micrófono (puerta de ruido) de la configuración
+        cfg_keys = {}
+        if API_CONFIG_PATH.exists():
+            try:
+                cfg_keys = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        self.noise_gate_threshold = float(cfg_keys.get("mic_sensitivity", 0.003))
+        self.last_speech_time     = 0.0
+
         self.vosk_recognizer = None
         try:
             import vosk
@@ -2031,6 +2058,10 @@ class JarvisLive:
         """Called from UI thread when user saves settings. Triggers session reconnect."""
         global _cached_api_key
         _cached_api_key = None  # Invalidate cached key so new one is loaded on reconnect
+        
+        # Actualizar dinámicamente la puerta de ruido sin reiniciar
+        self.noise_gate_threshold = float(cfg.get("mic_sensitivity", 0.003))
+        
         print("[JARVIS] ⚙️ Config actualizada — reconectando sesión...")
         self.ui.write_log("SYS: Aplicando nueva configuración...")
         if self._reconnect_event and self._loop:
@@ -2045,6 +2076,22 @@ class JarvisLive:
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
             return
+
+        if getattr(self, "is_sleeping", False):
+            # Check if text contains wake word or despierta
+            text_lower = text.lower()
+            if any(w in text_lower for w in ["despierta", "despiertate", "despiértate", "despertar", "jarvis", "wake up"]):
+                self.is_sleeping = False
+                self.ui.set_state("LISTENING")
+                self.ui.write_log("SYS: 🟢 ¡Despierto por comando de texto!")
+                # Play sound
+                try:
+                    import winsound
+                    winsound.PlaySound("SystemAsterisk", winsound.SND_ALIAS | winsound.SND_ASYNC)
+                except: pass
+            else:
+                self.ui.write_log("SYS: 💤 Jarvis está en modo suspensión. Di 'JARVIS' o escribe 'despierta' para despertarlo.")
+                return
 
         # Audio file: process with Gemini Vision (not the realtime audio session)
         if text.startswith("[AUDIO_FILE]"):
@@ -2433,6 +2480,14 @@ class JarvisLive:
                 self.is_sleeping = True
                 self.ui.write_log("SYS: 💤 Entrando en suspensión local.")
                 self.ui.set_state("MUTED")
+                # Immediately empty the audio in queue to stop any playing/queued audio
+                if self.audio_in_queue:
+                    while not self.audio_in_queue.empty():
+                        try:
+                            self.audio_in_queue.get_nowait()
+                        except Exception:
+                            break
+                self.set_speaking(False)
                 result = "Entrando en suspensión absoluta. Cortando transmisión a la nube hasta escuchar 'JARVIS'."
 
             elif name == "weather_report":
@@ -2835,21 +2890,60 @@ class JarvisLive:
                 jarvis_speaking = self._is_speaking
             if not jarvis_speaking and not self.ui.muted:
                 # Calculate RMS audio level for sphere visualization
+                rms = 0.0
                 try:
                     rms = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2))) / 32768.0
                     self.ui.set_audio_level(min(1.0, rms * 18))
                 except Exception:
                     pass
-                data = indata.tobytes()
-                # Silently drop if queue is full (during long tool calls)
-                def _safe_put(q, item):
-                    try:
-                        q.put_nowait(item)
-                    except Exception:
-                        pass  # Queue full — discard; prevents QueueFull crash
-                loop.call_soon_threadsafe(
-                    _safe_put, self.out_queue, {"data": data, "mime_type": "audio/pcm"}
-                )
+
+                # Filtro de Puerta de Ruido Adaptativo (VAD local dinámico en tiempo real)
+                import time
+                now = time.time()
+                threshold = getattr(self, "noise_gate_threshold", 0.003)
+                
+                # Inicializar y actualizar el piso de ruido dinámico (rolling minimum)
+                if not hasattr(self, "_noise_floor_samples"):
+                    self._noise_floor_samples = []
+                    self._last_noise_floor_update = now
+                
+                # Tomar muestra cada 100ms
+                if now - getattr(self, "_last_noise_floor_update", 0.0) > 0.1:
+                    self._noise_floor_samples.append(rms)
+                    self._last_noise_floor_update = now
+                    # Mantener últimas 50 muestras (~5 segundos)
+                    if len(self._noise_floor_samples) > 50:
+                        self._noise_floor_samples.pop(0)
+                    
+                    # El ruido base ambiental es el mínimo RMS de los últimos 5s
+                    self._ambient_noise_floor = min(self._noise_floor_samples)
+                
+                ambient_floor = getattr(self, "_ambient_noise_floor", 0.001)
+                # Si el usuario configura una sensibilidad alta (umbral muy bajo < 0.001), respetamos su umbral exacto
+                # De lo contrario, usamos un multiplicador dinámico optimizado de 1.3 (antes 1.5) para mayor responsividad
+                if threshold < 0.0012:
+                    dynamic_threshold = threshold
+                else:
+                    dynamic_threshold = max(threshold, ambient_floor * 1.3)
+                
+                if rms > dynamic_threshold:
+                    self.last_speech_time = now
+
+                # Si estamos dentro del tiempo de resaca (hangover) de 0.8s, transmitir el paquete
+                if now - getattr(self, "last_speech_time", 0.0) < 0.8:
+                    data = indata.tobytes()
+                    # Silently drop if queue is full (during long tool calls)
+                    def _safe_put(q, item):
+                        try:
+                            q.put_nowait(item)
+                        except Exception:
+                            pass  # Queue full — discard; prevents QueueFull crash
+                    loop.call_soon_threadsafe(
+                        _safe_put, self.out_queue, {"data": data, "mime_type": "audio/pcm"}
+                    )
+                else:
+                    # Descartar paquete en silencio para evitar alucinaciones en la nube
+                    pass
             elif jarvis_speaking:
                 # When JARVIS is speaking, also update level (from playback perspective)
                 try:
@@ -2884,7 +2978,7 @@ class JarvisLive:
                 async for response in self.session.receive():
 
                     if response.data:
-                        if not self._stop_requested.is_set():
+                        if not self._stop_requested.is_set() and not getattr(self, "is_sleeping", False):
                             self.audio_in_queue.put_nowait(response.data)
 
                     if response.server_content:
@@ -3128,9 +3222,9 @@ class JarvisLive:
             self.ui.set_state("THINKING")
 
             # Exponential backoff con jitter para evitar thundering herd
-            # After 5+ fails: wait up to 90s to let API rate limits recover
+            # Reducido el retraso de reconexión máximo a 10s (antes 90s) para volver en línea al instante
             if consecutive_fails > 1:
-                max_delay = 90.0 if consecutive_fails >= 5 else 12.0
+                max_delay = 10.0 if consecutive_fails >= 5 else 6.0
                 reconnect_delay = min(reconnect_delay * 2, max_delay)
             elif consecutive_fails == 0:
                 reconnect_delay = 1.0
@@ -3144,11 +3238,27 @@ class JarvisLive:
 def main():
     # ── Single Instance Lock ──────────────────────────────────────────────────
     import ctypes
-    global _single_instance_mutex
     _single_instance_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "JARVIS_AI_SINGLE_INSTANCE_MUTEX")
     if ctypes.windll.kernel32.GetLastError() == 183: # ERROR_ALREADY_EXISTS
         print("[JARVIS] Ya hay una instancia en ejecución. Cerrando.")
+        try:
+            hwnd = ctypes.windll.user32.FindWindowW(None, "JARVIS-AI-HUD")
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception as e:
+            print(f"[JARVIS] Error al restaurar la ventana activa: {e}")
         sys.exit(0)
+
+    # ── Admin validation ──────────────────────────────────────────────────────
+    try:
+        is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        is_admin = False
+    if not is_admin:
+        print("[JARVIS] ⚠️ ADVERTENCIA: No se está ejecutando con privilegios de Administrador.")
+        print("[JARVIS] ⚠️ Algunas funciones de control del PC o de terminal podrían fallar.")
+        print("[JARVIS] ⚠️ Se recomienda iniciar JARVIS mediante 'Iniciar JARVIS Beta.vbs'.")
 
     # ── License check ─────────────────────────────────────────────────────────
     # ──────────────────────────────────────────────────────────────────────────
@@ -3166,8 +3276,10 @@ def main():
         
         gemini = cfg.get("gemini_api_key", "").strip()
         openrouter = cfg.get("openrouter_api_key", "").strip()
+        ai_provider = cfg.get("ai_provider", "gemini").strip()
         
-        if gemini and openrouter:
+        # If Ollama is the active provider, or if we have at least one cloud key set, we are safe to start
+        if ai_provider == "ollama" or gemini or openrouter:
             return
             
         from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox
@@ -3182,7 +3294,7 @@ def main():
         dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
         layout = QVBoxLayout(dialog)
         
-        lbl_info = QLabel("¡Bienvenido a JARVIS!\n\nPor favor, ingresa tus API keys para continuar.\nEstas se guardarán localmente y de forma segura.")
+        lbl_info = QLabel("¡Bienvenido a JARVIS!\n\nPor favor, ingresa tus API keys o selecciona Ollama en la configuración.\nEstas se guardarán localmente y de forma segura.")
         lbl_info.setStyleSheet("font-size: 14px; font-weight: bold; margin-bottom: 10px;")
         layout.addWidget(lbl_info)
         
@@ -3193,7 +3305,7 @@ def main():
         inp_gemini.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addWidget(inp_gemini)
         
-        lbl_openrouter = QLabel("OpenRouter API Key:")
+        lbl_openrouter = QLabel("OpenRouter API Key (Opcional):")
         layout.addWidget(lbl_openrouter)
         inp_openrouter = QLineEdit()
         inp_openrouter.setText(openrouter)
@@ -3207,8 +3319,8 @@ def main():
         def on_save():
             g = inp_gemini.text().strip()
             o = inp_openrouter.text().strip()
-            if not g or not o:
-                QMessageBox.warning(dialog, "Error", "Ambas claves son obligatorias.")
+            if not g and not o:
+                QMessageBox.warning(dialog, "Error", "Debe proporcionar al menos una API Key de Gemini.")
                 return
             cfg["gemini_api_key"] = g
             cfg["openrouter_api_key"] = o
@@ -3223,6 +3335,39 @@ def main():
             sys.exit(0)
 
     _ensure_both_api_keys()
+
+    # Smart User Name Verification for First-Time Setup
+    def _ensure_user_name():
+        cfg = {}
+        if API_CONFIG_PATH.exists():
+            try:
+                cfg = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        
+        user_name = cfg.get("user_name", "").strip()
+        if user_name:
+            return
+            
+        from PyQt6.QtWidgets import QApplication, QInputDialog
+        # We need app instance before dialogs
+        app = QApplication.instance() or QApplication(sys.argv)
+        
+        name, ok = QInputDialog.getText(
+            None, 
+            "Configuración Inicial - JARVIS", 
+            "¿Cómo desea que lo llame, señor?", 
+            text="Señor"
+        )
+        if ok and name.strip():
+            cfg["user_name"] = name.strip()
+        else:
+            cfg["user_name"] = "Señor"
+            
+        API_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        API_CONFIG_PATH.write_text(json.dumps(cfg, indent=4), encoding="utf-8")
+
+    _ensure_user_name()
 
     ui = JarvisUI("face.png")
 
@@ -3319,6 +3464,11 @@ def main():
 
     threading.Thread(target=runner, daemon=True).start()
     ui.root.mainloop()
+
+    # Terminación forzada a nivel de sistema operativo para liberar handles de cámara,
+    # micrófono, sockets y el mutex de instancia única al instante sin esperas ni deadlocks
+    import os
+    os._exit(0)
 
 if __name__ == "__main__":
     main()
