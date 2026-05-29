@@ -1,188 +1,101 @@
 # -*- coding: utf-8 -*-
 import subprocess
-try:
-    import pygetwindow as gw
-except (ImportError, NotImplementedError):
-    gw = None
-
+import os
 import psutil
-from ctypes import cast, POINTER
-from comtypes import CLSCTX_ALL
-from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
 def set_master_volume(volume_percent: int) -> bool:
-    """Ajusta el volumen maestro del sistema usando pycaw (0-100)."""
+    """Ajusta el volumen maestro en Bazzite usando wpctl."""
     try:
-        devices = AudioUtilities.GetSpeakers()
-        volume = devices.EndpointVolume
-        volume.SetMasterVolumeLevelScalar(volume_percent / 100.0, None)
+        subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{volume_percent/100}"], capture_output=True)
         return True
-    except Exception as e:
-        print(f"[Contextual Control] Error setting volume: {e}")
-        return False
-
-def get_master_volume() -> int:
-    """Obtiene el volumen maestro actual."""
-    try:
-        devices = AudioUtilities.GetSpeakers()
-        volume = devices.EndpointVolume
-        return int(round(volume.GetMasterVolumeLevelScalar() * 100))
     except Exception:
-        return 50
+        return False
 
 def set_brightness(percent: int) -> bool:
-    """Ajusta el brillo de pantalla usando WMI via PowerShell (0-100)."""
+    """Ajusta el brillo usando brightnessctl."""
     try:
-        cmd = f"powershell -Command \"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,{percent})\""
-        subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        subprocess.run(["brightnessctl", "s", f"{percent}%"], capture_output=True)
         return True
     except Exception:
-        try:
-            cmd2 = f"powershell -Command \"Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods | Invoke-CimMethod -MethodName WmiSetBrightness -Arguments @{{Timeout=0; Brightness={percent}}}\""
-            subprocess.run(cmd2, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-            return True
-        except Exception:
-            return False
+        return False
 
 def set_power_plan(plan_name: str) -> bool:
-    """Cambia el plan de energía activo de Windows."""
-    plans = {
-        "balanced": "381b4222-f694-41f0-9685-ff5bb260df2e",
-        "high_performance": "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
-        "power_saver": "a1841308-3541-4fab-bc81-f71556f20b4a"
+    """Cambia el perfil de energía usando powerprofilesctl."""
+    # powerprofilesctl: performance, balanced, power-saver
+    mapping = {
+        "balanced": "balanced",
+        "high_performance": "performance",
+        "power_saver": "power-saver"
     }
-    guid = plans.get(plan_name.lower())
-    if not guid:
-        return False
+    target = mapping.get(plan_name.lower(), "balanced")
     try:
-        subprocess.run(f"powercfg /setactive {guid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        subprocess.run(["powerprofilesctl", "set", target], capture_output=True)
         return True
-    except Exception as e:
-        print(f"[Contextual Control] Error setting power plan: {e}")
+    except Exception:
         return False
 
-def set_focus_assist(level: int) -> bool:
-    """Ajusta el nivel de No Molestar (Focus Assist) en Windows usando el registro."""
-    # 0 = Off, 1 = Priority Only, 2 = Alarms Only
+def set_focus_assist(active: bool) -> bool:
+    """Ajusta el modo 'No Molestar' en KDE Plasma via DBus."""
+    state = "true" if active else "false"
     try:
-        import winreg
-        key_path = r"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings"
-        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
-        winreg.SetValueEx(key, "Noc", 0, winreg.REG_DWORD, level)
-        winreg.CloseKey(key)
+        # Comando DBus para KDE Plasma (DND)
+        cmd = [
+            "dbus-send", "--session", "--dest=org.freedesktop.Notifications",
+            "--type=method_call", "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications.SetDoNotDisturbMode", f"boolean:{state}"
+        ]
+        subprocess.run(cmd, capture_output=True)
         return True
-    except Exception as e:
-        print(f"[Contextual Control] Error setting Focus Assist: {e}")
+    except Exception:
         return False
 
 def contextual_control(parameters: dict, player=None) -> str:
-    """
-    Control Contextual de Entorno. Ajusta dinámicamente volumen, brillo, energía y notificaciones
-    según la ventana activa, hábitos de uso o comandos manuales.
-    """
+    """Control Contextual de Entorno para Bazzite."""
     action = parameters.get("action", "adjust_context").lower()
     
     if action == "set_volume":
-        vol = parameters.get("volume")
-        if vol is None:
-            return "Error: Falta el parámetro 'volume' (0-100) para la acción 'set_volume'."
-        vol = int(vol)
-        if set_master_volume(vol):
-            return f"Volumen maestro ajustado correctamente al {vol}%."
-        return "No se pudo cambiar el volumen maestro."
+        vol = int(parameters.get("volume", 50))
+        set_master_volume(vol)
+        return f"Volumen ajustado al {vol}%."
 
     elif action == "set_brightness":
-        bri = parameters.get("brightness")
-        if bri is None:
-            return "Error: Falta el parámetro 'brightness' (0-100) para la acción 'set_brightness'."
-        bri = int(bri)
-        if set_brightness(bri):
-            return f"Brillo de pantalla ajustado correctamente al {bri}%."
-        return "El ajuste de brillo de pantalla no está soportado en este hardware (común en PC de escritorio sin soporte WMI)."
+        bri = int(parameters.get("brightness", 70))
+        set_brightness(bri)
+        return f"Brillo ajustado al {bri}%."
 
     elif action == "set_power_plan":
-        plan = parameters.get("power_plan")
-        if not plan:
-            return "Error: Falta el parámetro 'power_plan' (balanced, high_performance, power_saver) para la acción 'set_power_plan'."
-        if set_power_plan(plan):
-            return f"Plan de energía cambiado correctamente a '{plan}'."
-        return f"No se pudo cambiar al plan de energía '{plan}'."
+        plan = parameters.get("power_plan", "balanced")
+        set_power_plan(plan)
+        return f"Perfil de energía: {plan}."
 
     elif action == "set_dnd":
-        # Do Not Disturb / Focus Assist
-        state = parameters.get("state", "off").lower()
-        level = 0
-        if state == "on" or state == "priority":
-            level = 1
-        elif state == "alarms":
-            level = 2
-            
-        if set_focus_assist(level):
-            return f"Focus Assist (No Molestar) configurado al nivel {level} ({state})."
-        return "No se pudo ajustar el estado de Focus Assist."
+        state = parameters.get("state", "off").lower() == "on"
+        set_focus_assist(state)
+        return f"Modo No Molestar: {'Activado' if state else 'Desactivado'}."
 
     elif action == "adjust_context":
-        # Detección inteligente por ventana en foco
-        try:
-            win = gw.getActiveWindow()
-            title = win.title.lower() if win and win.title else ""
-        except Exception:
-            title = ""
-            
-        if not title:
-            # Fallback a buscar procesos activos de interés
-            active_procs = []
-            for proc in psutil.process_iter(['name']):
-                try:
-                    active_procs.append(proc.info['name'].lower())
-                except Exception:
-                    pass
-            title = " ".join(active_procs)
+        # Detección por procesos en ejecución (más fiable en Linux Wayland que capturar ventana activa)
+        active_procs = []
+        for proc in psutil.process_iter(['name']):
+            try:
+                active_procs.append(proc.info['name'].lower())
+            except Exception: pass
+        procs_str = " ".join(active_procs)
 
-        result_msgs = []
-        
-        # Categorías contextuales
-        # 1. Comunicación / Reunión
-        if any(w in title for w in ["zoom", "teams", "meet", "discord", "skype", "whatsapp"]):
-            set_master_volume(40)
-            set_brightness(60)
-            set_power_plan("balanced")
-            set_focus_assist(1)  # Solo Prioridad
-            result_msgs.append("Modo Reunión/Comunicación: Volumen 40%, Brillo 60%, Energía Equilibrado, No Molestar Activo.")
+        if any(w in procs_str for w in ["zoom", "discord", "teams", "whatsapp", "telegram"]):
+            set_master_volume(40); set_brightness(60); set_power_plan("balanced"); set_focus_assist(True)
+            return "Modo Comunicación: Ajustes de reunión aplicados."
             
-        # 2. Gaming / Alto Rendimiento
-        elif any(w in title for w in ["steam", "epicgames", "cyberpunk", "csgo", "minecraft", "valorant", "gta"]):
-            set_master_volume(75)
-            set_brightness(90)
-            set_power_plan("high_performance")
-            set_focus_assist(2)  # Solo Alarmas
-            result_msgs.append("Modo Gaming: Volumen 75%, Brillo 90%, Alto Rendimiento activado, No Molestar total.")
+        elif any(w in procs_str for w in ["steam", "heroic", "lutris", "cyberpunk", "csgo"]):
+            set_master_volume(70); set_brightness(90); set_power_plan("high_performance"); set_focus_assist(True)
+            return "Modo Gaming: Alto rendimiento y sin distracciones."
 
-        # 3. Multimedia / Entretenimiento
-        elif any(w in title for w in ["vlc", "netflix", "prime video", "youtube", "spotify"]):
-            set_master_volume(80)
-            set_brightness(80)
-            set_power_plan("balanced")
-            set_focus_assist(0)  # Apagado (para ver notificaciones o según preferencia)
-            result_msgs.append("Modo Multimedia: Volumen 80%, Brillo 80%, Energía Equilibrado, No Molestar Desactivado.")
+        elif any(w in procs_str for w in ["vlc", "spotify", "firefox", "chrome"]):
+            set_master_volume(80); set_brightness(80); set_power_plan("balanced"); set_focus_assist(False)
+            return "Modo Multimedia: Volumen alto y brillo optimizado."
 
-        # 4. Trabajo de Foco / Programación / Oficina
-        elif any(w in title for w in ["word", "excel", "powerpoint", "vscode", "notepad", "sublime", "pdf", "python", "jarvis"]):
-            set_master_volume(20)
-            set_brightness(50)
-            set_power_plan("power_saver")
-            set_focus_assist(1)
-            result_msgs.append("Modo Productividad/Foco: Volumen 20% (silencioso), Brillo 50% (cuidado de vista), Ahorro de Energía, No Molestar Activo.")
-            
         else:
-            # Valores por defecto para otros contextos
-            set_master_volume(50)
-            set_brightness(70)
-            set_power_plan("balanced")
-            set_focus_assist(0)
-            result_msgs.append(f"Contexto general ('{title[:40]}...'): Ajustes estándar aplicados (Volumen 50%, Brillo 70%, Plan Equilibrado, Notificaciones activas).")
-            
-        return result_msgs[0]
+            set_master_volume(50); set_brightness(70); set_power_plan("balanced"); set_focus_assist(False)
+            return "Contexto General: Ajustes equilibrados restaurados."
 
-    else:
-        return f"Acción '{action}' no soportada por el módulo de Control Contextual."
+    return "Acción no soportada."

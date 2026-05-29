@@ -1,100 +1,56 @@
-"""computer_settings.py — Clean Win32/system settings controls."""
+"""computer_settings.py — Native Bazzite/Linux system settings controls."""
 import os
 import sys
 import subprocess
-try:
-    from compat import set_linux_volume, mute_linux_volume, is_linux
-except ImportError:
-    def is_linux(): return False
 
 def computer_settings(parameters: dict, response=None, player=None) -> str:
-    """Adjust system settings like volume, brightness, or active window states."""
+    """Adjust system settings like volume, brightness, or active window states in Bazzite."""
     action = parameters.get("action", "").lower()
     value = parameters.get("value", "")
     
     if action == "volume":
         try:
-            if is_linux():
-                if str(value).isdigit():
-                    target = int(value)
-                    if set_linux_volume(target):
-                        msg = f"Master volume adjusted to {target}% (Linux)."
-                    else:
-                        msg = "Failed to adjust volume using wpctl."
-                else:
-                    v_lower = value.lower()
-                    if "mute" in v_lower or "silenciar" in v_lower:
-                        mute_linux_volume()
-                        msg = "Volume muted/unmuted."
-                    else:
-                        # Fallback to pyautogui for simple up/down
-                        import pyautogui
-                        if "up" in v_lower or "subir" in v_lower:
-                            pyautogui.press("volumeup", presses=5)
-                            msg = "Volume increased."
-                        else:
-                            pyautogui.press("volumedown", presses=5)
-                            msg = "Volume decreased."
-                if player: player.write_log(f"🔊 {msg}")
-                return msg
-
-            import pyautogui
             if str(value).isdigit():
                 target = int(value)
-                try:
-                    from ctypes import cast, POINTER
-                    from comtypes import CoInitialize, CoUninitialize
-                    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
-                    CoInitialize()
-                    devices = AudioUtilities.GetSpeakers()
-                    interface = devices.Activate(IAudioEndpointVolume._iid_, 1, None)
-                    volume_ctrl = cast(interface, POINTER(IAudioEndpointVolume))
-                    scalar_vol = max(0.0, min(1.0, target / 100.0))
-                    volume_ctrl.SetMasterVolumeLevelScalar(scalar_vol, None)
-                    CoUninitialize()
-                    msg = f"Master volume adjusted to {target}%."
-                except Exception as e:
-                    msg = f"Could not set absolute volume: {e}"
+                # wpctl set-volume @DEFAULT_AUDIO_SINK@ 50%
+                subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{target/100}"], capture_output=True)
+                msg = f"Volumen ajustado al {target}% via wpctl."
             else:
-                if "up" in value.lower() or "subir" in value.lower():
-                    pyautogui.press("volumeup", presses=5)
-                    msg = "Volume increased."
-                elif "down" in value.lower() or "bajar" in value.lower():
-                    pyautogui.press("volumedown", presses=5)
-                    msg = "Volume decreased."
-                elif "mute" in value.lower() or "silenciar" in value.lower():
-                    pyautogui.press("volumemute")
-                    msg = "Volume muted."
+                v_lower = str(value).lower()
+                if "mute" in v_lower or "silenciar" in v_lower:
+                    subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"], capture_output=True)
+                    msg = "Silencio activado/desactivado."
+                elif "up" in v_lower or "subir" in v_lower:
+                    subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+"], capture_output=True)
+                    msg = "Volumen aumentado."
+                elif "down" in v_lower or "bajar" in v_lower:
+                    subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"], capture_output=True)
+                    msg = "Volumen disminuido."
                 else:
-                    msg = f"Unrecognized volume value: {value}"
-            if player:
-                player.write_log(f"🔊 {msg}")
+                    msg = f"Valor de volumen no reconocido: {value}"
+            
+            if player: player.write_log(f"🔊 {msg}")
             return msg
         except Exception as e:
-            return f"Failed to adjust volume: {e}"
-            
-    elif action in ("minimize", "window_minimize"):
-        try:
-            import pygetwindow as gw
-            if gw:
-                window = gw.getActiveWindow()
-                if window:
-                    window.minimize()
-                    return "Active window minimized."
-            return "No active window found or not supported on Linux."
-        except (Exception, NotImplementedError) as e:
-            return f"Failed to minimize window: {e}"
+            return f"Error al ajustar volumen en Linux: {e}"
 
-    elif action in ("maximize", "window_maximize"):
+    elif action == "brightness" or action == "brillo":
         try:
-            import pygetwindow as gw
-            if gw:
-                window = gw.getActiveWindow()
-                if window:
-                    window.maximize()
-                    return "Active window maximized."
-            return "No active window found or not supported on Linux."
-        except (Exception, NotImplementedError) as e:
-            return f"Failed to maximize window: {e}"
+            # Usar brightnessctl (común en Bazzite)
+            if str(value).isdigit():
+                target = int(value)
+                subprocess.run(["brightnessctl", "s", f"{target}%"], capture_output=True)
+                msg = f"Brillo ajustado al {target}%."
+            else:
+                v_lower = str(value).lower()
+                if "up" in v_lower or "subir" in v_lower:
+                    subprocess.run(["brightnessctl", "s", "+10%"], capture_output=True)
+                    msg = "Brillo aumentado."
+                else:
+                    subprocess.run(["brightnessctl", "s", "10%-"], capture_output=True)
+                    msg = "Brillo disminuido."
+            return msg
+        except Exception as e:
+            return f"Error al ajustar brillo: {e}. Asegúrate de tener 'brightnessctl' instalado."
 
-    return f"Settings action '{action}' is not supported yet, sir."
+    return f"La acción '{action}' aún no es compatible de forma nativa en Bazzite, señor."

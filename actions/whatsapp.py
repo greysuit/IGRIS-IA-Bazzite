@@ -168,20 +168,36 @@ def whatsapp(parameters: dict, player=None) -> str:
                     data = output.getvalue()[14:] # Offset 14 is the BMP file header
                     output.close()
                     
-                    # Windows clipboard API calls
+                if os.name != 'nt':
+                    # Implementación para Linux (Bazzite/KDE)
+                    try:
+                        import io
+                        output = io.BytesIO()
+                        image.convert("RGB").save(output, "PNG")
+                        data = output.getvalue()
+                        # Intentar wl-copy (Wayland) primero, luego xclip (X11)
+                        try:
+                            process = subprocess.Popen(['wl-copy', '-t', 'image/png'], stdin=subprocess.PIPE)
+                            process.communicate(input=data)
+                        except:
+                            process = subprocess.Popen(['xclip', '-selection', 'clipboard', '-t', 'image/png'], stdin=subprocess.PIPE)
+                            process.communicate(input=data)
+                    except Exception as e:
+                        if player: player.write_log(f"⚠️ Error portapapeles Linux: {e}")
+                else:
+                    import ctypes
+                    output = io.BytesIO()
+                    image.convert("RGB").save(output, "BMP")
+                    data = output.getvalue()[14:]
+                    output.close()
                     ctypes.windll.user32.OpenClipboard(None)
                     ctypes.windll.user32.EmptyClipboard()
-                    # CF_DIB = 8
                     ctypes.windll.user32.SetClipboardData(8, ctypes.windll.kernel32.GlobalAlloc(0x0002, len(data)))
-                    # Copy the BMP binary data to allocated memory
                     h_clip_mem = ctypes.windll.user32.GetClipboardData(8)
                     p_clip_mem = ctypes.windll.kernel32.GlobalLock(h_clip_mem)
                     ctypes.cdll.msvcrt.memcpy(p_clip_mem, data, len(data))
                     ctypes.windll.kernel32.GlobalUnlock(h_clip_mem)
                     ctypes.windll.user32.CloseClipboard()
-                else:
-                    # Linux Fallback: On Linux we might use xclip or skip image for now
-                    if player: player.write_log("⚠️ El envío de imágenes vía portapapeles solo está soportado en Windows por ahora.")
                 
                 time.sleep(1.0)
                 # Paste the copied image
