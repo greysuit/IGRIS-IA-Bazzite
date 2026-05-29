@@ -1054,10 +1054,11 @@ class DeviceSettingsDialog(QDialog):
                 font-weight: bold;
                 padding: 12px 30px;
                 border-radius: 5px;
-                border: 1px solid {C_ACC};
+                border: 1px solid {C_TEXT};
             }}
             QPushButton:hover {{
-                background-color: {C_ACC};
+                background-color: {C_TEXT};
+                color: {C_BG};
                 border: 1px solid white;
             }}
         """)
