@@ -1061,6 +1061,10 @@ class DeviceSettingsDialog(QDialog):
                 border: 1px solid white;
             }}
         """)
+        # Aplicar visibilidad inicial
+        self._toggle_ollama_fields()
+
+    def _toggle_ollama_fields(self):
         is_ollama = (self.cmb_ai_provider.currentData() == "ollama")
         self.ollama_url_lbl.setVisible(is_ollama)
         self.inp_ollama_url.setVisible(is_ollama)
