@@ -2357,7 +2357,7 @@ class IgrisLive:
         parts.append(sys_prompt)
 
         # Build SpeechConfig — try to set speaking rate for faster delivery
-        _voice_name = _get_jarvis_voice()
+        _voice_name = _get_igris_voice()
         _speech_cfg = None
         try:
             _speech_cfg = types.SpeechConfig(
