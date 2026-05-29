@@ -71,7 +71,7 @@ def terminal_agent(parameters: dict, player=None) -> str:
                 capture_output=True,
                 text=True,
                 timeout=timeout_sec,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
             )
             
             # Esperar a que el proceso elevado inicie, corra y genere/llene el archivo de salida
@@ -118,10 +118,13 @@ def terminal_agent(parameters: dict, player=None) -> str:
 
     # --- Ejecución estándar (ya es Admin, o no se pidió ser Admin) ---
     try:
-        if shell_type == "cmd":
+        if os.name != "nt":
+            # Shell para Linux (Bazzite)
+            cmd_args = ["/bin/bash", "-c", command]
+        elif shell_type == "cmd":
             cmd_args = ["cmd", "/c", command]
         else:
-            # PowerShell por defecto — UTF-8 forzado para salida limpia
+            # PowerShell por defecto en Windows
             cmd_args = [
                 "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
                 "-Command",
@@ -139,7 +142,7 @@ def terminal_agent(parameters: dict, player=None) -> str:
             cwd=working_dir,
             encoding="utf-8",
             errors="replace",
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
             env=env,
         )
 

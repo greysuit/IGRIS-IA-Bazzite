@@ -3,12 +3,105 @@
 open_app.py — Intelligent heuristic application finder and launcher for JARVIS.
 """
 import os
+import sys
 import subprocess
 import webbrowser
 import traceback
 
+import json
+
+def scan_linux_apps():
+    """Escanea los archivos .desktop y aplicaciones Flatpak para indexar aplicaciones en Bazzite/Linux."""
+    apps_found = {}
+    
+    # 1. Escaneo de archivos .desktop tradicionales y de Flatpak
+    search_paths = [
+        "/usr/share/applications",
+        os.path.expanduser("~/.local/share/applications"),
+        "/var/lib/flatpak/exports/share/applications",
+        os.path.expanduser("~/.local/share/flatpak/exports/share/applications")
+    ]
+    
+    for path in search_paths:
+        if not os.path.exists(path): continue
+        for file in os.listdir(path):
+            if file.endswith(".desktop"):
+                try:
+                    with open(os.path.join(path, file), 'r', errors='ignore') as f:
+                        name, exec_cmd = None, None
+                        for line in f:
+                            if line.startswith("Name=") and not name:
+                                name = line.split("=")[1].strip().lower()
+                            if line.startswith("Exec=") and not exec_cmd:
+                                # Limpiar parámetros de Exec (como %U, %F)
+                                raw_exec = line.split("=")[1].strip()
+                                exec_cmd = raw_exec.split(" %")[0].replace('"', '').strip()
+                        if name and exec_cmd:
+                            # Si ya existe, preferimos la versión que no sea de sistema si es posible
+                            if name not in apps_found or "/usr/share" in apps_found[name]:
+                                apps_found[name] = exec_cmd
+                except: continue
+
+    # 2. Refuerzo con comando flatpak para asegurar IDs correctos
+    try:
+        result = subprocess.run(["flatpak", "list", "--columns=name,application"], capture_output=True, text=True)
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if "\t" in line:
+                    fp_name, fp_id = line.split("\t")
+                    apps_found[fp_name.lower().strip()] = f"flatpak run {fp_id.strip()}"
+    except: pass
+    
+    return apps_found
+
+def find_linux_app(app_name: str) -> str:
+    """Busca aplicaciones usando el índice escaneado del sistema con búsqueda difusa."""
+    app_lower = app_name.lower().strip()
+    apps = scan_linux_apps()
+    
+    # 1. Búsqueda por nombre exacto
+    if app_lower in apps:
+        return apps[app_lower]
+    
+    # 2. Búsqueda por palabra clave (ej: "discord" en "com.discordapp.Discord")
+    for name, cmd in apps.items():
+        if app_lower in name:
+            return cmd
+            
+    # 3. Búsqueda en el comando mismo (útil para IDs de Flatpak o Waydroid)
+    for name, cmd in apps.items():
+        if app_lower in cmd.lower():
+            return cmd
+
+    # 4. Mapeos manuales de emergencia actualizados para Bazzite
+    linux_mappings = {
+        "spotify": "flatpak run com.spotify.Client",
+        "discord": "flatpak run com.discordapp.Discord",
+        "brave": "flatpak run com.brave.Browser",
+        "terminal": "konsole", # En Bazzite suele ser Konsole o Ptyxis
+        "ajustes": "systemsettings",
+        "botellas": "flatpak run com.usebottles.bottles"
+    }
+    # ... resto del código anterior
+    
+    mapped = linux_mappings.get(app_lower)
+    if mapped:
+        # Verificar si es un Flatpak
+        try:
+            check_flatpak = subprocess.run(["flatpak", "info", mapped], capture_output=True)
+            if check_flatpak.returncode == 0:
+                return f"flatpak run {mapped}"
+        except:
+            pass
+        return mapped
+
+    return None
+
 def find_executable(app_name: str) -> str:
-    """Scan standard system folders recursively to find executable, desktop link, or document matching name."""
+    """Scan standard system folders recursively to find executable..."""
+    if sys.platform != "win32":
+        return find_linux_app(app_name)
+    
     exe_search_dirs = [
         os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files")),
         os.path.join(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")),
@@ -86,7 +179,10 @@ def open_app(parameters: dict, response=None, player=None) -> str:
 
         # 2. Check if it is a directory path or drive letter
         if os.path.exists(app_name) and os.path.isdir(app_name):
-            os.startfile(app_name)
+            if sys.platform == "win32":
+                os.startfile(app_name)
+            else:
+                subprocess.Popen(["xdg-open", app_name])
             msg = f"Abriendo la carpeta local: '{app_name}'."
             if player:
                 player.write_log(f"📁 {msg}")
@@ -109,7 +205,10 @@ def open_app(parameters: dict, response=None, player=None) -> str:
         }
         if app_lower in virtual_folders:
             folder_path = virtual_folders[app_lower]
-            os.startfile(folder_path)
+            if sys.platform == "win32":
+                os.startfile(folder_path)
+            else:
+                subprocess.Popen(["xdg-open", folder_path])
             msg = f"Abriendo carpeta del sistema: '{app_lower}'."
             if player:
                 player.write_log(f"📁 {msg}")
@@ -143,14 +242,17 @@ def open_app(parameters: dict, response=None, player=None) -> str:
         if not executable:
             executable = app_name
 
-        # Launch the resolved application safely using shell execution (prevents space-in-path bugs)
+        # Launch the resolved application safely
         try:
-            os.startfile(executable)
+            if sys.platform != "win32":
+                # En Linux, ejecutamos el comando directamente (puede ser un binario o 'flatpak run ...')
+                # Si el usuario está en un contenedor y necesita salir al host, puede configurar la app para usar distrobox-host-exec
+                subprocess.Popen(executable, shell=True)
+            else:
+                os.startfile(executable)
         except Exception:
             # Fallback for raw commands
-            # If path has spaces, wrap in double quotes for safe shell launching
-            cmd_exec = f'"{executable}"' if " " in executable and not executable.startswith('"') else executable
-            subprocess.Popen(cmd_exec, shell=True)
+            subprocess.Popen(executable, shell=True)
 
         msg = f"Abriendo la aplicación: '{app_name}'."
         if player:

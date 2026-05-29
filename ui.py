@@ -1903,15 +1903,19 @@ class JarvisUI:
             if not os.path.exists(target_vbs):
                 return
                 
-            ps_cmd = (
-                f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{shortcut_path}');"
-                f"$s.TargetPath='{target_vbs}';"
-                f"$s.WorkingDirectory='{current_dir}';"
-                f"$s.IconLocation='{icon_path}';"
-                f"$s.Description='Lanzador Automatico de JARVIS AI (Admin)';"
-                f"$s.Save()"
-            )
-            subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
-            print("[STARTUP] Startup shortcut ensured successfully.")
+            if os.name == 'nt':
+                ps_cmd = (
+                    f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{shortcut_path}');"
+                    f"$s.TargetPath='{target_vbs}';"
+                    f"$s.WorkingDirectory='{current_dir}';"
+                    f"$s.IconLocation='{icon_path}';"
+                    f"$s.Description='Lanzador Automatico de JARVIS AI (Admin)';"
+                    f"$s.Save()"
+                )
+                subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], check=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                print("[STARTUP] Startup shortcut ensured successfully.")
+            else:
+                # En Linux (Bazzite), podríamos crear un archivo .desktop, pero por ahora evitamos el crash
+                print("[STARTUP] Startup shortcut creation skipped on non-Windows system.")
         except Exception as e:
             print(f"[STARTUP] Error ensuring startup shortcut: {e}")

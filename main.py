@@ -3247,23 +3247,28 @@ class JarvisLive:
 def main():
     # ── Single Instance Lock ──────────────────────────────────────────────────
     import ctypes
-    _single_instance_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "JARVIS_AI_SINGLE_INSTANCE_MUTEX")
-    if ctypes.windll.kernel32.GetLastError() == 183: # ERROR_ALREADY_EXISTS
-        print("[JARVIS] Ya hay una instancia en ejecución. Cerrando.")
+    if os.name == 'nt':
         try:
-            hwnd = ctypes.windll.user32.FindWindowW(None, "JARVIS-AI-HUD")
-            if hwnd:
-                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            _single_instance_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "JARVIS_AI_SINGLE_INSTANCE_MUTEX")
+            if ctypes.windll.kernel32.GetLastError() == 183: # ERROR_ALREADY_EXISTS
+                print("[JARVIS] Ya hay una instancia en ejecución. Cerrando.")
+                hwnd = ctypes.windll.user32.FindWindowW(None, "JARVIS-AI-HUD")
+                if hwnd:
+                    ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+                sys.exit(0)
         except Exception as e:
-            print(f"[JARVIS] Error al restaurar la ventana activa: {e}")
-        sys.exit(0)
+            print(f"[JARVIS] Error en comprobación de instancia única: {e}")
 
     # ── Admin validation ──────────────────────────────────────────────────────
-    try:
-        is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
-    except Exception:
-        is_admin = False
+    is_admin = False
+    if os.name == 'nt':
+        try:
+            is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+        except Exception:
+            is_admin = False
+    else:
+        is_admin = os.getuid() == 0
     if not is_admin:
         print("[JARVIS] ⚠️ ADVERTENCIA: No se está ejecutando con privilegios de Administrador.")
         print("[JARVIS] ⚠️ Algunas funciones de control del PC o de terminal podrían fallar.")
@@ -3426,38 +3431,41 @@ def main():
             local_shortcut.activated.connect(on_shortcut_triggered)
 
             # B. Win32 Native Global Hotkey Hook (for background capture)
-            def setup_global_hotkey():
-                import threading
-                import ctypes
-                import ctypes.wintypes
+            if os.name == 'nt':
+                def setup_global_hotkey():
+                    import threading
+                    import ctypes
+                    import ctypes.wintypes
 
-                def hotkey_thread():
-                    user32 = ctypes.windll.user32
-                    # MOD_NOREPEAT = 0x4000
-                    # VK_INSERT = 0x2D
-                    try:
-                        if not user32.RegisterHotKey(None, 99, 0x0000, 0x2D):
-                            print("[HOTKEY] Error registering global Insert hotkey.")
+                    def hotkey_thread():
+                        user32 = ctypes.windll.user32
+                        # MOD_NOREPEAT = 0x4000
+                        # VK_INSERT = 0x2D
+                        try:
+                            if not user32.RegisterHotKey(None, 99, 0x0000, 0x2D):
+                                print("[HOTKEY] Error registering global Insert hotkey.")
+                                return
+                        except Exception as e:
+                            print(f"[HOTKEY] Exception registering global hotkey: {e}")
                             return
-                    except Exception as e:
-                        print(f"[HOTKEY] Exception registering global hotkey: {e}")
-                        return
 
-                    try:
-                        msg = ctypes.wintypes.MSG()
-                        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
-                            if msg.message == 0x0312: # WM_HOTKEY
-                                if msg.wParam == 99:
-                                    # Thread-safely trigger UI callback inside PyQt event loop
-                                    QTimer.singleShot(0, on_shortcut_triggered)
-                            user32.TranslateMessage(ctypes.byref(msg))
-                            user32.DispatchMessageW(ctypes.byref(msg))
-                    finally:
-                        user32.UnregisterHotKey(None, 99)
+                        try:
+                            msg = ctypes.wintypes.MSG()
+                            while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+                                if msg.message == 0x0312: # WM_HOTKEY
+                                    if msg.wParam == 99:
+                                        # Thread-safely trigger UI callback inside PyQt event loop
+                                        QTimer.singleShot(0, on_shortcut_triggered)
+                                user32.TranslateMessage(ctypes.byref(msg))
+                                user32.DispatchMessageW(ctypes.byref(msg))
+                        finally:
+                            user32.UnregisterHotKey(None, 99)
 
-                threading.Thread(target=hotkey_thread, daemon=True).start()
+                    threading.Thread(target=hotkey_thread, daemon=True).start()
 
-            setup_global_hotkey()
+                setup_global_hotkey()
+            else:
+                print("[HOTKEY] Global hotkey (INS) not yet supported on Linux. Use the in-app shortcut.")
             print("[PATCH] Avengers: Age of Ultron golden aesthetics & Insert global hotkey loaded successfully!")
 
     except Exception as e:
