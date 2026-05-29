@@ -40,7 +40,7 @@ if _gpu_enabled:
     else:
         os.environ["QSG_RHI_BACKEND"] = "opengl" # Use OpenGL on Linux
     os.environ["QSG_INFO"] = "1"
-    print("[JARVIS] GPU Acceleration is ENABLED. Offloading RAM rendering workload to GPU.")
+    print("[IGRIS] GPU Acceleration is ENABLED. Offloading RAM rendering workload to GPU.")
 else:
     # Balanced low-RAM mode: Keep GPU hardware compositing enabled so glowing CSS effects and drop-shadows are rendered beautifully, but limit renderer processes and JS space size.
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
@@ -54,7 +54,7 @@ else:
         "--disable-sync "
         "--mute-audio"
     )
-    print("[JARVIS] Using Balanced Low RAM GPU-Composited mode for beautiful fluid rendering.")
+    print("[IGRIS] Using Balanced Low RAM GPU-Composited mode for beautiful fluid rendering.")
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -125,7 +125,7 @@ import numpy as np
 import sounddevice as sd
 from google import genai
 from google.genai import types
-from ui import JarvisUI
+from ui import IgrisUI
 
 def _patch_settings_ui():
     pass
@@ -403,23 +403,23 @@ def _get_api_key() -> str:
     return _cached_api_key
 
 
-JARVIS_VOICES = {
+IGRIS_VOICES = {
     "Aoede":  ("Femenina", "Cálida y sofisticada — ideal para asistente IA"),
     "Kore":   ("Femenina", "Suave y precisa"),
     "Leda":   ("Femenina", "Natural y fluida"),
     "Zephyr": ("Femenina", "Dinámica y expresiva"),
-    "Charon": ("Masculina", "Profunda y seria — voz original de JARVIS"),
+    "Charon": ("Masculina", "Profunda y seria — voz original de IGRIS"),
     "Puck":   ("Masculina", "Ágil y versátil"),
     "Fenrir": ("Masculina", "Grave y autoritaria"),
     "Orus":   ("Masculina", "Clásica y equilibrada"),
 }
 
-def _get_jarvis_voice() -> str:
+def _get_igris_voice() -> str:
     try:
         cfg = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
-        return cfg.get("jarvis_voice", "Aoede")
+        return cfg.get("igris_voice", "Fenrir")
     except Exception:
-        return "Aoede"
+        return "Fenrir"
 
 
 def _load_system_prompt() -> str:
@@ -429,15 +429,15 @@ def _load_system_prompt() -> str:
             cfg = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
             user_name = cfg.get("user_name", "Señor").strip()
             if user_name:
-                prompt_text += f"\n\n## PERSONALIZACIÓN DEL USUARIO\nEl nombre del usuario es '{user_name}'. Dirígete a él como '{user_name}' (o variantes cortas respetuosas como 'señor {user_name}') de manera leal y natural en cada interacción, a menos que él te pida explícitamente cambiar su nombre."
+                prompt_text += f"\n\n## PERSONALIZACIÓN DEL USUARIO\nEl nombre del usuario es '{user_name}'. Dirígete a él como '{user_name}' de manera leal y técnica, como un consultor de seguridad senior."
         except Exception:
             pass
         return prompt_text
     except Exception:
         return (
-            "You are JARVIS, Tony Stark's AI assistant. "
-            "Be concise, direct, and always use the provided tools to complete tasks. "
-            "Never simulate or guess results — always call the appropriate tool."
+            "You are IGRIS, a Senior Security Consultant and Offensive Pentesting AI. "
+            "Your tone is professional, technical, and precise. You assist the user (Grey) in managing his Bazzite system and security tasks. "
+            "Be concise, direct, and always use the provided tools. Your voice is Fenrir (Deep and Authoritative)."
         )
 
 _CTRL_RE = re.compile(r"<ctrl\d+>", re.IGNORECASE)
@@ -451,7 +451,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "camera_bus",
         "description": (
-            "Controla el subsistema de pilotaje y navegación gestual por cámara de JARVIS. "
+            "Controla el subsistema de pilotaje y navegación gestual por cámara de IGRIS. "
             "Permite activar, desactivar o alternar el control gestual del mouse usando la webcam en segundo plano."
         ),
         "parameters": {
@@ -468,7 +468,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "jarvis_ui_control",
         "description": (
-            "Control total sobre la ventana principal y los widgets de la interfaz de JARVIS. "
+            "Control total sobre la ventana principal y los widgets de la interfaz de IGRIS. "
             "Permite minimizar/restaurar la ventana principal, o abrir, cerrar, alternar la visibilidad de cualquier widget del dashboard.\n"
             "Widgets disponibles: weather (clima), spotify (música), system (sistema), "
             "notes (notas), todo (tareas), maps (mapas), image (imágenes), camera (cámara)."
@@ -669,7 +669,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "sleep_mode",
-        "description": "Entra en modo suspensión. Desactiva el micrófono para la IA hasta que el usuario diga 'Oye JARVIS' o 'JARVIS' localmente.",
+        "description": "Entra en modo suspensión. Desactiva el micrófono para la IA hasta que el usuario diga 'Oye IGRIS' o 'IGRIS' localmente.",
         "parameters": {
             "type": "OBJECT",
             "properties": {}
@@ -840,7 +840,7 @@ TOOL_DECLARATIONS = [
         "description": (
             "Shuts down the assistant completely. "
             "Call this when the user expresses intent to end the conversation, "
-            "close the assistant, say goodbye, or stop Jarvis. "
+            "close the assistant, say goodbye, or stop Igris. "
             "The user can say this in ANY language."
         ),
         "parameters": {
@@ -1051,7 +1051,7 @@ TOOL_DECLARATIONS = [
         "description": (
             "Muestra rutas de navegación y mapas interactivos. "
             "Usar para: cómo llegar a un lugar, cuánto tarda, indicaciones paso a paso, "
-            "buscar una dirección en el mapa. Abre mapa JARVIS en Chrome con la ruta marcada. "
+            "buscar una dirección en el mapa. Abre mapa IGRIS en Chrome con la ruta marcada. "
             "SIEMPRE llamar para cualquier pedido de navegación, rutas o mapas."
         ),
         "parameters": {
@@ -1114,7 +1114,7 @@ TOOL_DECLARATIONS = [
         "description": (
             "Perfil dinámico del usuario — hábitos, preferencias, historial de uso. "
             "Ver perfil, configurar preferencias, ver hábitos aprendidos, guardar notas personales. "
-            "JARVIS aprende automáticamente los patrones del usuario."
+            "IGRIS aprende automáticamente los patrones del usuario."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -1372,7 +1372,7 @@ TOOL_DECLARATIONS = [
             "Usa Pollinations.ai (gratis, open-source, sin API key) o Gemini. "
             "SIEMPRE llamar cuando el usuario pide 'generame una imagen', 'crea una foto de', "
             "'dibujame', 'haceme una imagen', 'quiero una foto de', o 'mostrame', etc. "
-            "Después de generar, la imagen se muestra automáticamente en el widget de JARVIS."
+            "Después de generar, la imagen se muestra automáticamente en el widget de IGRIS."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -1380,7 +1380,7 @@ TOOL_DECLARATIONS = [
                 "prompt":       {"type": "STRING",  "description": "Descripción detallada de la imagen a generar"},
                 "count":        {"type": "INTEGER", "description": "Cantidad de imágenes (1-4, default: 1)"},
                 "aspect_ratio": {"type": "STRING",  "description": "Relación de aspecto: 1:1 | 4:3 | 3:4 | 16:9 | 9:16 (default: 1:1)"},
-                "save_path":    {"type": "STRING",  "description": "Carpeta de guardado (default: ~/Pictures/JARVIS_Generadas)"},
+                "save_path":    {"type": "STRING",  "description": "Carpeta de guardado (default: ~/Pictures/IGRIS_Generadas)"},
             },
             "required": ["prompt"]
         }
@@ -1577,7 +1577,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "screen_vision",
         "description": (
-            "JARVIS puede VER la pantalla del usuario. Captura lo que está en el monitor "
+            "IGRIS puede VER la pantalla del usuario. Captura lo que está en el monitor "
             "y usa IA (Gemini Vision) para describirlo, responder preguntas, leer texto, "
             "o dar ayuda contextual basada en lo que se está mostrando.\n"
             "SIEMPRE usar cuando el usuario diga: '¿qué estoy viendo?', '¿qué hay en mi pantalla?', "
@@ -1607,10 +1607,10 @@ TOOL_DECLARATIONS = [
     {
         "name": "morning_brief",
         "description": (
-            "Genera el informe matutino inteligente de JARVIS. "
+            "Genera el informe matutino inteligente de IGRIS. "
             "Incluye saludo personalizado, hora, fecha, clima actual, objetivos activos y consejo del día. "
             "Usar cuando el usuario pida: 'informe del día', 'brief matutino', 'qué hay hoy', "
-            "'resumen del día', 'buenos días JARVIS', o al iniciar el día."
+            "'resumen del día', 'buenos días IGRIS', o al iniciar el día."
         ),
         "parameters": {
             "type": "object",
@@ -1626,7 +1626,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "vision_guardian",
         "description": (
-            "Controla el Guardian de Visión Ambiental de JARVIS — monitoreo proactivo de pantalla. "
+            "Controla el Guardian de Visión Ambiental de IGRIS — monitoreo proactivo de pantalla. "
             "Analiza la pantalla periódicamente con IA y ofrece ayuda contextual cuando detecta algo relevante. "
             "Usar cuando el usuario diga: 'activa el guardian', 'desactiva el guardian', "
             "'vigila mi pantalla', 'deja de vigilar', 'analiza mi pantalla ahora', "
@@ -1651,7 +1651,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "accessibility_overlay",
         "description": (
-            "Muestra, oculta o alterna la barra flotante de accesibilidad JARVIS sobre el escritorio. "
+            "Muestra, oculta o alterna la barra flotante de accesibilidad IGRIS sobre el escritorio. "
             "USAR cuando el usuario diga: 'mostrar barra de accesibilidad', 'abrir panel de accesibilidad', "
             "'activar barra para ciegos', 'cerrar barra', 'ocultar barra de accesibilidad', "
             "'alternar barra', 'barra de accesibilidad'."
@@ -1754,7 +1754,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "tool_creator",
         "description": (
-            "Permite a JARVIS programar e instalar sus propias herramientas. "
+            "Permite a IGRIS programar e instalar sus propias herramientas. "
             "ÚSALO SIEMPRE que el usuario te pida que aprendas a hacer algo nuevo, o si necesitas una funcionalidad que no tienes preinstalada. "
             "Escribirás el código Python y se instalará automáticamente."
         ),
@@ -1908,7 +1908,7 @@ TOOL_DECLARATIONS = [
     {
         "name": "auto_programmer",
         "description": (
-            "Suite de desarrollo y auto-programación autónoma avanzada. Permite a JARVIS escribir "
+            "Suite de desarrollo y auto-programación autónoma avanzada. Permite a IGRIS escribir "
             "código Python para nuevas herramientas, validar sintaxis con py_compile, correr tests sintácticos "
             "en un sandbox con traceback detallado, corregir errores e inyectar plugins en caliente."
         ),
@@ -1946,11 +1946,11 @@ TOOL_DECLARATIONS = [
     {
         "name": "self_edit",
         "description": (
-            "Auto-edición de código: JARVIS puede leer, modificar, crear y gestionar sus propios archivos de código fuente. "
+            "Auto-edición de código: IGRIS puede leer, modificar, crear y gestionar sus propios archivos de código fuente. "
             "Crea backups automáticos antes de cada cambio. "
             "USAR cuando el usuario pida: 'editá tu código', 'cambiá tu prompt', 'agregá esta función', "
             "'modificá tu comportamiento', 'mejorate', 'aprendé a hacer X editando tu código', "
-            "o cuando JARVIS necesite auto-mejorarse, corregir bugs propios o agregar capacidades. "
+            "o cuando IGRIS necesite auto-mejorarse, corregir bugs propios o agregar capacidades. "
             "Puede editar: main.py, core/prompt.txt, actions/*.py, config/*, o cualquier archivo del proyecto."
         ),
         "parameters": {
@@ -2010,9 +2010,9 @@ try:
 except Exception as _e:
     pass
 
-class JarvisLive:
+class IgrisLive:
 
-    def __init__(self, ui: JarvisUI):
+    def __init__(self, ui: IgrisUI):
         self.ui             = ui
         self.session        = None
         self.is_sleeping    = False
@@ -2032,11 +2032,11 @@ class JarvisLive:
             if os.path.exists("config/vosk_model"):
                 model = vosk.Model("config/vosk_model")
                 self.vosk_recognizer = vosk.KaldiRecognizer(model, 16000)
-                print("[JARVIS] Modelo Vosk cargado para Modo Suspensión.")
+                print("[IGRIS] Modelo Vosk cargado para Modo Suspensión.")
         except Exception as e:
-            print(f"[JARVIS] No se pudo cargar Vosk: {e}")
+            print(f"[IGRIS] No se pudo cargar Vosk: {e}")
         self.audio_in_queue = None
-        # Iniciar scheduler y motor de reglas en background al arrancar JARVIS
+        # Iniciar scheduler y motor de reglas en background al arrancar IGRIS
         start_runner(player=ui, speak=None)
         start_rules_runner(player=ui, speak=None)
         self.out_queue      = None
@@ -2071,7 +2071,7 @@ class JarvisLive:
         # Actualizar dinámicamente la puerta de ruido sin reiniciar
         self.noise_gate_threshold = float(cfg.get("mic_sensitivity", 0.003))
         
-        print("[JARVIS] ⚙️ Config actualizada — reconectando sesión...")
+        print("[IGRIS] ⚙️ Config actualizada — reconectando sesión...")
         self.ui.write_log("SYS: Aplicando nueva configuración...")
         if self._reconnect_event and self._loop:
             self._loop.call_soon_threadsafe(self._reconnect_event.set)
@@ -2099,7 +2099,7 @@ class JarvisLive:
                     winsound.PlaySound("SystemAsterisk", winsound.SND_ALIAS | winsound.SND_ASYNC)
                 except: pass
             else:
-                self.ui.write_log("SYS: 💤 Jarvis está en modo suspensión. Di 'JARVIS' o escribe 'despierta' para despertarlo.")
+                self.ui.write_log("SYS: 💤 Igris está en modo suspensión. Di 'IGRIS' o escribe 'despierta' para despertarlo.")
                 return
 
         # Audio file: process with Gemini Vision (not the realtime audio session)
@@ -2166,9 +2166,9 @@ class JarvisLive:
                 return resp.text.strip()
 
             result = await loop.run_in_executor(_TOOL_EXECUTOR, _analyze)
-            self.ui.write_log(f"JARVIS: {result}")
+            self.ui.write_log(f"IGRIS: {result}")
 
-            # Feed result back into the realtime session so JARVIS can speak it
+            # Feed result back into the realtime session so IGRIS can speak it
             if self.session:
                 await self.session.send_client_content(
                     turns={"parts": [{"text": f"[RESULTADO AUDIO '{p.name}']\n{result}"}]},
@@ -2282,7 +2282,7 @@ class JarvisLive:
                     ).start()
                 return True  # phrase fired → don't also send to Gemini
         except Exception as e:
-            print(f"[JARVIS] phrase trigger error: {e}")
+            print(f"[IGRIS] phrase trigger error: {e}")
 
         return False
 
@@ -2409,7 +2409,7 @@ class JarvisLive:
                 )
             )
             _vad_applied = True
-            print("[JARVIS] VAD config aplicado (typed)")
+            print("[IGRIS] VAD config aplicado (typed)")
         except Exception:
             pass
 
@@ -2423,9 +2423,9 @@ class JarvisLive:
                         "silence_duration_ms": 500,
                     }
                 }
-                print("[JARVIS] VAD config aplicado (dict)")
+                print("[IGRIS] VAD config aplicado (dict)")
             except Exception:
-                print("[JARVIS] VAD config no aplicado")
+                print("[IGRIS] VAD config no aplicado")
 
         # ── Context compression: prevent session degradation over time ────────
         try:
@@ -2449,18 +2449,18 @@ class JarvisLive:
         name = fc.name
         args = dict(fc.args or {})
 
-        print(f"[JARVIS] 🔧 {name}  {args}")
+        print(f"[IGRIS] 🔧 {name}  {args}")
         self.ui.set_state("THINKING")
 
 
 
         if name == "shutdown_jarvis":
-            self.ui.write_log("SYS: Apagando JARVIS...")
+            self.ui.write_log("SYS: Apagando IGRIS...")
             # Must quit from Qt main thread — signals are thread-safe
             self.ui._win._shutdown_sig.emit()
             return types.FunctionResponse(
                 id=fc.id, name=name,
-                response={"result": "Apagando JARVIS. ¡Hasta luego, señor!"}
+                response={"result": "Apagando IGRIS. ¡Hasta luego, señor!"}
             )
 
         if name == "save_memory":
@@ -2497,7 +2497,7 @@ class JarvisLive:
                         except Exception:
                             break
                 self.set_speaking(False)
-                result = "Entrando en suspensión absoluta. Cortando transmisión a la nube hasta escuchar 'JARVIS'."
+                result = "Entrando en suspensión absoluta. Cortando transmisión a la nube hasta escuchar 'IGRIS'."
 
             elif name == "weather_report":
                 r = await loop.run_in_executor(_TOOL_EXECUTOR, lambda: weather_action(parameters=args, player=self.ui))
@@ -2863,7 +2863,7 @@ class JarvisLive:
         if not self.ui.muted:
             self.ui.set_state("LISTENING")
 
-        print(f"[JARVIS] 📤 {name} → {str(result)[:80]}")
+        print(f"[IGRIS] 📤 {name} → {str(result)[:80]}")
         return types.FunctionResponse(
             id=fc.id, name=name,
             response={"result": result}
@@ -2875,7 +2875,7 @@ class JarvisLive:
             await self.session.send_realtime_input(media=msg)
 
     async def _listen_audio(self):
-        print("[JARVIS] 🎤 Mic iniciado")
+        print("[IGRIS] 🎤 Mic iniciado")
         loop = asyncio.get_event_loop()
 
         def callback(indata, frames, time_info, status):
@@ -2954,7 +2954,7 @@ class JarvisLive:
                     # Descartar paquete en silencio para evitar alucinaciones en la nube
                     pass
             elif jarvis_speaking:
-                # When JARVIS is speaking, also update level (from playback perspective)
+                # When IGRIS is speaking, also update level (from playback perspective)
                 try:
                     rms = float(np.sqrt(np.mean(indata.astype(np.float32) ** 2))) / 32768.0
                     self.ui.set_audio_level(min(1.0, rms * 15))
@@ -2969,15 +2969,15 @@ class JarvisLive:
                 blocksize=CHUNK_SIZE,
                 callback=callback,
             ):
-                print("[JARVIS] 🎤 Mic stream open")
+                print("[IGRIS] 🎤 Mic stream open")
                 while True:
                     await asyncio.sleep(0.01)  # 10ms — máxima responsividad del mic
         except Exception as e:
-            print(f"[JARVIS] ❌ Mic: {e}")
+            print(f"[IGRIS] ❌ Mic: {e}")
             raise
 
     async def _receive_audio(self):
-        print("[JARVIS] 👂 Recv iniciado")
+        print("[IGRIS] 👂 Recv iniciado")
         out_buf, in_buf = [], []
         _first_chunk   = True
         _last_tool     = None   # track which tool was executing when error hit
@@ -3024,7 +3024,7 @@ class JarvisLive:
                         _first_chunk = True
                         fcs = response.tool_call.function_calls
                         for fc in fcs:
-                            print(f"[JARVIS] 📞 {fc.name}")
+                            print(f"[IGRIS] 📞 {fc.name}")
                             _last_tool = fc.name
                         # Execute all tool calls in parallel when there are multiple
                         if len(fcs) > 1:
@@ -3038,7 +3038,7 @@ class JarvisLive:
                             )
                             _last_tool = None  # only clear AFTER successful send
                         except Exception as tool_err:
-                            print(f"[JARVIS] ❌ send_tool_response failed: {tool_err}")
+                            print(f"[IGRIS] ❌ send_tool_response failed: {tool_err}")
                             raise
         except Exception as e:
             msg  = str(e)
@@ -3046,15 +3046,15 @@ class JarvisLive:
             # Detect 1011 (internal server error) regardless of exception type
             if code == 1011 or "1011" in msg or "Internal error" in msg:
                 tool_info = f" durante '{_last_tool}'" if _last_tool else ""
-                print(f"[JARVIS] ⚡ API 1011{tool_info} — reconectando...")
+                print(f"[IGRIS] ⚡ API 1011{tool_info} — reconectando...")
                 self._api_1011_tool = _last_tool
             else:
-                print(f"[JARVIS] ❌ Recv: {e}")
+                print(f"[IGRIS] ❌ Recv: {e}")
                 traceback.print_exc()
             raise
 
     async def _play_audio(self):
-        print("[JARVIS] 🔊 Play iniciado")
+        print("[IGRIS] 🔊 Play iniciado")
 
         stream = sd.RawOutputStream(
             samplerate=RECEIVE_SAMPLE_RATE,
@@ -3101,7 +3101,7 @@ class JarvisLive:
                         await asyncio.to_thread(stream.write, buffered)
                     _jitter_buf.clear()
         except Exception as e:
-            print(f"[JARVIS] ❌ Play: {e}")
+            print(f"[IGRIS] ❌ Play: {e}")
             raise
         finally:
             self.set_speaking(False)
@@ -3119,7 +3119,7 @@ class JarvisLive:
 
         while True:
             try:
-                print("[JARVIS] 🔌 Conectando...")
+                print("[IGRIS] 🔌 Conectando...")
                 self.ui.set_state("THINKING")
                 config = self._build_config()
 
@@ -3134,9 +3134,9 @@ class JarvisLive:
                     self._turn_done_event = asyncio.Event()
                     self._reconnect_event = asyncio.Event()
 
-                    print("[JARVIS] ✅ Conectado.")
+                    print("[IGRIS] ✅ Conectado.")
                     self.ui.set_state("LISTENING")
-                    self.ui.write_log("SYS: JARVIS en línea.")
+                    self.ui.write_log("SYS: IGRIS en línea.")
                     reconnect_delay   = 1.0   # reset backoff on successful connection
                     consecutive_fails = 0
                     self._api_1011_tool = None   # clear 1011 tool tracker
@@ -3151,7 +3151,7 @@ class JarvisLive:
                                 speaking_fn=lambda: self._is_speaking,
                             )
                         except Exception as _vge:
-                            print(f"[JARVIS] VisionGuardian init error: {_vge}")
+                            print(f"[IGRIS] VisionGuardian init error: {_vge}")
                         # Auto morning brief (6am–12pm, once per day)
                         _hour = __import__("datetime").datetime.now().hour
                         if 6 <= _hour < 12 and not already_briefed_today():
@@ -3186,15 +3186,15 @@ class JarvisLive:
                         # Timeout de WebSocket al conectar — error de red transitorio.
                         # NO incrementar consecutive_fails: sólo reintento rápido.
                         is_handshake_timeout = True
-                        print(f"[JARVIS] ⏱️ Timeout al conectar — reintentando en 1s...")
+                        print(f"[IGRIS] ⏱️ Timeout al conectar — reintentando en 1s...")
                     elif "1011" in msg or "Internal error" in msg:
                         tool_hint = self._api_1011_tool or ""
-                        print(f"[JARVIS] ⚡ API 1011{tool_hint and ' durante '+tool_hint} — reconectando...")
+                        print(f"[IGRIS] ⚡ API 1011{tool_hint and ' durante '+tool_hint} — reconectando...")
                         consecutive_fails += 1
                         if consecutive_fails >= 4:
                             self.ui.write_log(
                                 "SYS: ⚠️ Error 1011 repetido. Esperando para no saturar la API...\n"
-                                "SYS: Si persiste más de 2 min, reiniciá JARVIS."
+                                "SYS: Si persiste más de 2 min, reiniciá IGRIS."
                             )
                         elif tool_hint:
                             self.ui.write_log(f"SYS: Error de servidor al ejecutar '{tool_hint}'. Reconectando...")
@@ -3202,15 +3202,15 @@ class JarvisLive:
                             self.ui.write_log("SYS: Error de servidor 1011. Reconectando...")
                     elif "1008" in msg or "policy violation" in msg.lower() or "not found for API version" in msg:
                         # Model not available / wrong API version — log clearly, retry with same model
-                        print(f"[JARVIS] ⚠️ Modelo no disponible en esta versión de API: {msg[:120]}")
+                        print(f"[IGRIS] ⚠️ Modelo no disponible en esta versión de API: {msg[:120]}")
                         self.ui.write_log("SYS: ⚠️ Modelo no disponible. Reintentando...")
                         consecutive_fails += 1
                     elif "1000" in msg or "going away" in msg.lower():
                         # Cierre normal de la sesión (expiró ~15 min) — silencioso
-                        print(f"[JARVIS] 🔄 Sesión expirada — reconectando...")
+                        print(f"[IGRIS] 🔄 Sesión expirada — reconectando...")
                         consecutive_fails = 0   # reset: no es un fallo
                     else:
-                        print(f"[JARVIS] ⚠️ {exc}")
+                        print(f"[IGRIS] ⚠️ {exc}")
                         traceback.print_exc()
                         consecutive_fails += 1
 
@@ -3241,7 +3241,7 @@ class JarvisLive:
             import random as _rnd
             jitter = _rnd.uniform(0, reconnect_delay * 0.25)
             total  = reconnect_delay + jitter
-            print(f"[JARVIS] 🔄 Reconectando en {total:.1f}s...")
+            print(f"[IGRIS] 🔄 Reconectando en {total:.1f}s...")
             await asyncio.sleep(total)
 
 def main():
@@ -3250,16 +3250,16 @@ def main():
     import ctypes
     if os.name == 'nt':
         try:
-            _single_instance_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "JARVIS_AI_SINGLE_INSTANCE_MUTEX")
+            _single_instance_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "IGRIS_AI_SINGLE_INSTANCE_MUTEX")
             if ctypes.windll.kernel32.GetLastError() == 183: # ERROR_ALREADY_EXISTS
-                print("[JARVIS] Ya hay una instancia en ejecución. Cerrando.")
-                hwnd = ctypes.windll.user32.FindWindowW(None, "JARVIS-AI-HUD")
+                print("[IGRIS] Ya hay una instancia en ejecución. Cerrando.")
+                hwnd = ctypes.windll.user32.FindWindowW(None, "IGRIS-AI-HUD")
                 if hwnd:
                     ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                     ctypes.windll.user32.SetForegroundWindow(hwnd)
                 sys.exit(0)
         except Exception as e:
-            print(f"[JARVIS] Error en comprobación de instancia única: {e}")
+            print(f"[IGRIS] Error en comprobación de instancia única: {e}")
 
     # ── Admin validation ──────────────────────────────────────────────────────
     is_admin = False
@@ -3271,9 +3271,9 @@ def main():
     else:
         is_admin = os.getuid() == 0
     if not is_admin:
-        print("[JARVIS] ⚠️ ADVERTENCIA: No se está ejecutando con privilegios de Administrador.")
-        print("[JARVIS] ⚠️ Algunas funciones de control del PC o de terminal podrían fallar.")
-        print("[JARVIS] ⚠️ Se recomienda iniciar JARVIS mediante 'Iniciar JARVIS Beta.vbs'.")
+        print("[IGRIS] ⚠️ ADVERTENCIA: No se está ejecutando con privilegios de Administrador.")
+        print("[IGRIS] ⚠️ Algunas funciones de control del PC o de terminal podrían fallar.")
+        print("[IGRIS] ⚠️ Se recomienda iniciar IGRIS mediante 'Iniciar IGRIS Beta.vbs'.")
 
     # ── License check ─────────────────────────────────────────────────────────
     # ──────────────────────────────────────────────────────────────────────────
@@ -3304,12 +3304,12 @@ def main():
         app = QApplication.instance() or QApplication(sys.argv)
         
         dialog = QDialog()
-        dialog.setWindowTitle("Configuración Inicial de JARVIS")
+        dialog.setWindowTitle("Configuración Inicial de IGRIS")
         dialog.resize(450, 250)
         dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
         layout = QVBoxLayout(dialog)
         
-        lbl_info = QLabel("¡Bienvenido a JARVIS!\n\nPor favor, ingresa tus API keys o selecciona Ollama en la configuración.\nEstas se guardarán localmente y de forma segura.")
+        lbl_info = QLabel("¡Bienvenido a IGRIS!\n\nPor favor, ingresa tus API keys o selecciona Ollama en la configuración.\nEstas se guardarán localmente y de forma segura.")
         lbl_info.setStyleSheet("font-size: 14px; font-weight: bold; margin-bottom: 10px;")
         layout.addWidget(lbl_info)
         
@@ -3370,7 +3370,7 @@ def main():
         
         name, ok = QInputDialog.getText(
             None, 
-            "Configuración Inicial - JARVIS", 
+            "Configuración Inicial - IGRIS", 
             "¿Cómo desea que lo llame, señor?", 
             text="Señor"
         )
@@ -3384,7 +3384,7 @@ def main():
 
     _ensure_user_name()
 
-    ui = JarvisUI("face.png")
+    ui = IgrisUI("face.png")
 
     # --- UI COSMETICS PATCH ---
     try:
@@ -3402,12 +3402,12 @@ def main():
                     except:
                         label.hide()
 
-            # 2. Add keyboard shortcut & Global Hotkey (INS / Insert key) to wake up JARVIS
+            # 2. Add keyboard shortcut & Global Hotkey (INS / Insert key) to wake up IGRIS
             from PyQt6.QtGui import QKeySequence, QShortcut
             from PyQt6.QtCore import Qt, QTimer
 
             def on_shortcut_triggered():
-                # Wake up / unmute JARVIS
+                # Wake up / unmute IGRIS
                 if hasattr(ui, "_win"):
                     # Si está muteado, desmutearlo para que escuche
                     if getattr(ui, "muted", False):
@@ -3419,7 +3419,7 @@ def main():
                         if hasattr(ui._win, "showNormal"):
                             ui._win.showNormal()
                             ui._win.activateWindow()
-                            ui.write_log("SYS: 🔔 JARVIS en foco vía atajo INS.")
+                            ui.write_log("SYS: 🔔 IGRIS en foco vía atajo INS.")
                         
                         # Cambiar estado visual a escuchando
                         try:
@@ -3474,7 +3474,7 @@ def main():
 
     def runner():
         ui.wait_for_api_key()
-        jarvis = JarvisLive(ui)
+        jarvis = IgrisLive(ui)
         try:
             asyncio.run(jarvis.run())
         except KeyboardInterrupt:

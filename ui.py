@@ -1,4 +1,4 @@
-"""ui.py — 100% Custom Gold-Themed Dynamic Bento PyQt6 User Interface for JARVIS.
+"""ui.py — 100% Custom Gold-Themed Dynamic Bento PyQt6 User Interface for IGRIS.
 
 Fully optimized HUD layouts:
 - Background WebGL reactive Particle Orb covering the screen.
@@ -832,7 +832,7 @@ class FilesPanel(QWidget):
 class DeviceSettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("JARVIS Settings Configuration Control")
+        self.setWindowTitle("IGRIS Settings Configuration Control")
         self.resize(580, 680)
         self.update_style()
         
@@ -1003,13 +1003,13 @@ class DeviceSettingsDialog(QDialog):
         self.spotify_id_lbl = QLabel("Spotify Client ID:")
         layout.addWidget(self.spotify_id_lbl)
         self.inp_spotify_id = QLineEdit()
-        self.inp_spotify_id.setPlaceholderText("Dejar en blanco para usar credenciales de JARVIS")
+        self.inp_spotify_id.setPlaceholderText("Dejar en blanco para usar credenciales de IGRIS")
         layout.addWidget(self.inp_spotify_id)
         
         self.spotify_secret_lbl = QLabel("Spotify Client Secret:")
         layout.addWidget(self.spotify_secret_lbl)
         self.inp_spotify_secret = QLineEdit()
-        self.inp_spotify_secret.setPlaceholderText("Dejar en blanco para usar credenciales de JARVIS")
+        self.inp_spotify_secret.setPlaceholderText("Dejar en blanco para usar credenciales de IGRIS")
         self.inp_spotify_secret.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addWidget(self.inp_spotify_secret)
         
@@ -1248,7 +1248,7 @@ class DeviceSettingsDialog(QDialog):
                         f"if (window.updatePerformance) window.updatePerformance({self.sld_performance.value()});"
                     )
                 
-            QMessageBox.information(self, "Success", "JARVIS Configurations saved, sir.")
+            QMessageBox.information(self, "Success", "IGRIS Configurations saved, sir.")
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save settings: {e}")
@@ -1396,7 +1396,7 @@ class DeviceSettingsDialog(QDialog):
                                 "<head>"
                                 "  <meta charset='utf-8'>"
                                 "  <meta name='viewport' content='width=device-width, initial-scale=1.0'>"
-                                "  <title>JARVIS - Conectado</title>"
+                                "  <title>IGRIS - Conectado</title>"
                                 "  <link href='https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap' rel='stylesheet'>"
                                 "  <style>"
                                 "    body { background: #060400; color: #fde68a; font-family: 'Outfit', sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }"
@@ -1416,7 +1416,7 @@ class DeviceSettingsDialog(QDialog):
                                 "      </svg>"
                                 "    </div>"
                                 "    <h1>Spotify Conectado</h1>"
-                                "    <p>La vinculación con JARVIS se ha completado con éxito.<br>Ya puedes cerrar esta pestaña y volver a la aplicación.</p>"
+                                "    <p>La vinculación con IGRIS se ha completado con éxito.<br>Ya puedes cerrar esta pestaña y volver a la aplicación.</p>"
                                 "  </div>"
                                 "</body>"
                                 "</html>"
@@ -1538,7 +1538,7 @@ class MainWindow(QMainWindow):
         
         self.resize(1050, 760)
         self.setMinimumSize(1000, 750)
-        self.setWindowTitle("JARVIS-AI-HUD")
+        self.setWindowTitle("IGRIS-AI-HUD")
         
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -1766,7 +1766,7 @@ class MainWindow(QMainWindow):
                 print("[UI] Camera Preview Window restored.")
 
     def stop_gesture_thread(self):
-        """Cleanly stop the background gesture tracking thread on JARVIS exit."""
+        """Cleanly stop the background gesture tracking thread on IGRIS exit."""
         if hasattr(self, '_gesture_thread') and self._gesture_thread is not None:
             self._gesture_thread.stop()
             self._gesture_thread = None
@@ -1784,7 +1784,7 @@ class MainWindow(QMainWindow):
             
         tray_menu = QMenu(self)
         
-        show_action = tray_menu.addAction("Mostrar JARVIS")
+        show_action = tray_menu.addAction("Mostrar IGRIS")
         show_action.triggered.connect(self.show_and_activate)
         
         mute_action = tray_menu.addAction("Silenciar/Escuchar")
@@ -1831,7 +1831,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "tray_icon") and self.tray_icon.isVisible():
                 from PyQt6.QtWidgets import QSystemTrayIcon
                 self.tray_icon.showMessage(
-                    "JARVIS AI",
+                    "IGRIS AI",
                     "Sigo activo en segundo plano. Presiona Insert para hablar o haz doble clic aquí para mostrarme.",
                     QSystemTrayIcon.MessageIcon.Information,
                     3000
@@ -1859,7 +1859,7 @@ class MockRoot:
         QTimer.singleShot(ms, func)
 
 
-class JarvisUI:
+class IgrisUI:
     def __init__(self, face_path=""):
         self.app = QApplication.instance() or QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(False)
@@ -1902,7 +1902,7 @@ class JarvisUI:
         self._win.txt_console.setText("")
         
     def stream_jarvis_chunk(self, chunk: str):
-        text = chunk.replace("JARVIS:", "").strip()
+        text = chunk.replace("IGRIS:", "").strip()
         if text:
             if self.jarvis_response_buffer:
                 self.jarvis_response_buffer += " " + text
@@ -1918,10 +1918,10 @@ class JarvisUI:
             if not appdata:
                 return
             startup_dir = os.path.join(appdata, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
-            shortcut_path = os.path.join(startup_dir, 'JARVIS AI.lnk')
+            shortcut_path = os.path.join(startup_dir, 'IGRIS AI.lnk')
             
             current_dir = os.path.abspath(os.path.dirname(__file__))
-            target_vbs = os.path.join(current_dir, "Iniciar JARVIS Beta.vbs")
+            target_vbs = os.path.join(current_dir, "Iniciar IGRIS Beta.vbs")
             icon_path = os.path.join(current_dir, "assets", "jarvis_icono.ico")
             
             if not os.path.exists(target_vbs):
@@ -1933,7 +1933,7 @@ class JarvisUI:
                     f"$s.TargetPath='{target_vbs}';"
                     f"$s.WorkingDirectory='{current_dir}';"
                     f"$s.IconLocation='{icon_path}';"
-                    f"$s.Description='Lanzador Automatico de JARVIS AI (Admin)';"
+                    f"$s.Description='Lanzador Automatico de IGRIS AI (Admin)';"
                     f"$s.Save()"
                 )
                 subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], check=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
