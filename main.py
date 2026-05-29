@@ -3245,6 +3245,7 @@ class JarvisLive:
             await asyncio.sleep(total)
 
 def main():
+    import os
     # ── Single Instance Lock ──────────────────────────────────────────────────
     import ctypes
     if os.name == 'nt':
