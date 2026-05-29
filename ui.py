@@ -1040,8 +1040,27 @@ class DeviceSettingsDialog(QDialog):
         
         self.btn_save.clicked.connect(self.save)
         self.load_settings()
-
-    def _toggle_ollama_fields(self):
+        
+        # Mover el botón de guardado fuera del scroll para que sea fijo
+        layout.removeItem(btn_layout)
+        main_layout.addLayout(btn_layout)
+        
+        # Estilo extra para el botón para que destaque
+        self.btn_save.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {C_PRI};
+                color: white;
+                font-size: 14px;
+                font-weight: bold;
+                padding: 12px 30px;
+                border-radius: 5px;
+                border: 1px solid {C_ACC};
+            }}
+            QPushButton:hover {{
+                background-color: {C_ACC};
+                border: 1px solid white;
+            }}
+        """)
         is_ollama = (self.cmb_ai_provider.currentData() == "ollama")
         self.ollama_url_lbl.setVisible(is_ollama)
         self.inp_ollama_url.setVisible(is_ollama)
