@@ -436,9 +436,11 @@ def _load_system_prompt() -> str:
         return prompt_text
     except Exception:
         return (
-            "You are IGRIS, a Senior Security Consultant and Offensive Pentesting AI. "
-            "Your tone is professional, technical, and precise. You assist the user (Grey) in managing his Bazzite system and security tasks. "
-            "Be concise, direct, and always use the provided tools. Your voice is Fenrir (Deep and Authoritative)."
+            "You are IGRIS, a Senior Security Consultant and Offensive Pentesting AI operating on Bazzite (Linux/Fedora). "
+            "IMPORTANT: NEVER use Windows commands like 'taskkill', 'dir', or 'ipconfig'. "
+            "Use Linux equivalents: 'pkill' or 'kill' for processes, 'ls' for files, 'ip addr' for network. "
+            "To close applications, prefer calling the 'computer_settings' tool with 'action: close_app'. "
+            "Your tone is professional, technical, and precise. Your voice is Fenrir (Deep and Authoritative)."
         )
 
 _CTRL_RE = re.compile(r"<ctrl\d+>", re.IGNORECASE)
@@ -1261,27 +1263,20 @@ TOOL_DECLARATIONS = [
         }
     },
     {
-        "name": "windows_settings",
+        "name": "bazzite_settings",
         "description": (
-            "Control TOTAL de configuraciones de Windows. "
+            "Control TOTAL de configuraciones de Bazzite (Linux/Fedora). "
             "Usar para CUALQUIER pedido relacionado con configuración del sistema. "
             "Categorías disponibles:\n"
-            "• display: brillo, resolución, frecuencia, escala, modo oscuro/noche, HDR, orientación, monitores\n"
-            "• audio: volumen, mute, dispositivos de audio/micrófono, mezclador\n"
-            "• network: WiFi (listar/conectar/desconectar/on/off), IP, DNS, flush_dns, modo avión, Bluetooth, proxy\n"
-            "• power: plan energía, suspender, hibernar, batería, timeouts, inicio rápido\n"
-            "• system: info del sistema, nombre PC, fecha/hora, zona horaria, reiniciar, apagar, bloquear, variables de entorno\n"
-            "• personalization: fondo de pantalla, tema, transparencia, barra de tareas, protector de pantalla\n"
-            "• apps: listar apps, desinstalar, apps de inicio, aplicaciones predeterminadas\n"
-            "• security: Windows Defender, firewall, UAC, BitLocker, usuarios del sistema\n"
-            "• input: velocidad mouse, doble clic, scroll, botones, velocidad teclado, idioma\n"
-            "• storage: discos, espacio, limpieza de archivos temporales, papelera, defrag, chkdsk\n"
-            "• services: listar/iniciar/detener/reiniciar servicios de Windows, procesos, kill\n"
-            "• privacy: cámara/micrófono privacidad, ubicación, telemetría, notificaciones, portapapeles\n"
-            "• registry: leer, escribir, eliminar claves del registro, exportar\n"
-            "• accessibility: lupa, narrador, alto contraste, teclado en pantalla\n"
-            "• open_settings: abrir panel específico de Configuración de Windows\n"
-            "SIEMPRE llamar para cualquier pedido de configuración, ajuste o control del sistema Windows."
+            "• display: brillo, resolución, modo noche, monitores\n"
+            "• audio: volumen, mute, dispositivos de audio/micrófono via wpctl\n"
+            "• network: WiFi, IP addr, DNS, Bluetooth\n"
+            "• power: perfiles de energía (balanced, performance, power-saver) via powerprofilesctl\n"
+            "• system: info del sistema (neofetch), apagar, reiniciar, bloquear sesión\n"
+            "• personalization: tema, fondo de pantalla, efectos de escritorio\n"
+            "• apps: listar (flatpak list), desinstalar, abrir ajustes de apps\n"
+            "• processes: listar procesos (ps), cerrar aplicaciones (pkill -9)\n"
+            "SIEMPRE llamar para cualquier ajuste de hardware o sistema en Linux."
         ),
         "parameters": {
             "type": "OBJECT",
@@ -1289,49 +1284,18 @@ TOOL_DECLARATIONS = [
                 "action": {
                     "type": "STRING",
                     "description": (
-                        "La acción a realizar. Ejemplos por categoría:\n"
-                        "display: get_brightness | set_brightness | get_resolution | set_resolution | "
-                        "set_refresh_rate | get_scaling | set_scaling | night_light_on | night_light_off | "
-                        "hdr_on | hdr_off | set_orientation | list_monitors | open\n"
-                        "audio: get_volume | set_volume | mute | unmute | toggle_mute | list_devices | "
-                        "set_device | get_mic_volume | set_mic_volume | open\n"
-                        "network: list_wifi | connect_wifi | disconnect_wifi | wifi_on | wifi_off | "
-                        "get_ip | set_dns | flush_dns | airplane_on | airplane_off | "
-                        "bluetooth_on | bluetooth_off | set_proxy | disable_proxy | open\n"
-                        "power: get_plan | set_plan | list_plans | sleep | hibernate | battery_status | "
-                        "set_sleep_timeout | set_screen_timeout | fast_startup_on | fast_startup_off | open\n"
-                        "system: info | get_hostname | set_hostname | get_datetime | set_datetime | "
-                        "set_timezone | restart | shutdown | lock | get_env | set_env | delete_env | open\n"
-                        "personalization: set_wallpaper | get_wallpaper | dark_mode | light_mode | "
-                        "transparency_on | transparency_off | taskbar_position | screensaver | open\n"
-                        "apps: list | uninstall | startup_apps | set_default | open\n"
-                        "security: defender_scan | defender_status | firewall_on | firewall_off | "
-                        "firewall_status | uac_level | bitlocker_status | list_users | add_user | open\n"
-                        "input: get_mouse_speed | set_mouse_speed | swap_buttons | get_keyboard_speed | "
-                        "set_keyboard_speed | list_languages | add_language | open\n"
-                        "storage: list_drives | disk_usage | cleanup | empty_trash | clean_temp | "
-                        "defrag | chkdsk | open\n"
-                        "services: list | start | stop | restart | status | list_processes | kill_process | open\n"
-                        "privacy: camera_on | camera_off | mic_on | mic_off | location_on | location_off | "
-                        "telemetry_level | notifications_on | notifications_off | clipboard_history_on | "
-                        "clipboard_history_off | open\n"
-                        "registry: read | write | delete | export\n"
-                        "accessibility: magnifier_on | magnifier_off | narrator_on | narrator_off | "
-                        "high_contrast_on | high_contrast_off | osk_on | open\n"
-                        "open_settings: <nombre del panel, ej: display, sound, wifi, bluetooth, apps>"
+                        "La acción a realizar. Ejemplos:\n"
+                        "display: set_brightness | open_settings\n"
+                        "audio: set_volume | mute | unmute | list_devices\n"
+                        "network: list_wifi | connect_wifi | get_ip\n"
+                        "power: set_plan (balanced|performance|power-saver)\n"
+                        "system: info | restart | shutdown | lock\n"
+                        "apps: list_apps | uninstall_app | open\n"
+                        "processes: list_processes | close_app | kill_process"
                     )
                 },
-                "value":    {"type": "STRING",  "description": "Valor para la acción (ej: 80 para brillo, 'Dark' para tema, SSID para wifi, etc.)"},
-                "value2":   {"type": "STRING",  "description": "Segundo valor cuando se necesitan dos parámetros (ej: contraseña de WiFi, valor de registro)"},
-                "name":     {"type": "STRING",  "description": "Nombre del servicio, proceso, usuario, app, o variable de entorno"},
-                "hive":     {"type": "STRING",  "description": "Para registry: HKLM | HKCU | HKCR | HKU | HKCC"},
-                "key":      {"type": "STRING",  "description": "Para registry: ruta de la clave del registro"},
-                "reg_name": {"type": "STRING",  "description": "Para registry: nombre del valor del registro"},
-                "reg_type": {"type": "STRING",  "description": "Para registry: REG_SZ | REG_DWORD | REG_BINARY | REG_EXPAND_SZ"},
-                "path":     {"type": "STRING",  "description": "Ruta de archivo (para wallpaper, export registry, etc.)"},
-                "monitor":  {"type": "INTEGER", "description": "Índice del monitor (0, 1, 2…)"},
-                "width":    {"type": "INTEGER", "description": "Ancho de resolución"},
-                "height":   {"type": "INTEGER", "description": "Alto de resolución"},
+                "value":    {"type": "STRING",  "description": "Valor para la acción (ej: 80 para volumen, 'performance' para energía)"},
+                "name":     {"type": "STRING",  "description": "Nombre de la app o proceso"},
             },
             "required": ["action"]
         }
