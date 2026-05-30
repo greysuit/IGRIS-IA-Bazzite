@@ -3,6 +3,13 @@ import os
 import sys
 import subprocess
 
+def run_on_host(command_list):
+    """Ejecuta un comando en el host si estamos dentro de un Distrobox."""
+    # Comprobar si estamos en distrobox (común en Bazzite)
+    if os.path.exists("/run/.containerenv") or os.path.exists("/.dockerenv"):
+        return ["distrobox-host-exec"] + command_list
+    return command_list
+
 def computer_settings(parameters: dict, response=None, player=None) -> str:
     """Adjust system settings like volume, brightness, or active window states in Bazzite."""
     action = parameters.get("action", "").lower()
@@ -12,60 +19,69 @@ def computer_settings(parameters: dict, response=None, player=None) -> str:
         try:
             if str(value).isdigit():
                 target = int(value)
-                subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{target/100}"], capture_output=True)
-                msg = f"Volumen ajustado al {target}% via wpctl."
+                cmd = run_on_host(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{target/100}"])
+                subprocess.run(cmd, capture_output=True)
+                msg = f"Volumen ajustado al {target}%."
             else:
                 v_lower = str(value).lower()
                 if "mute" in v_lower or "silenciar" in v_lower:
-                    subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"], capture_output=True)
-                    msg = "Silencio activado/desactivado."
+                    cmd = run_on_host(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
+                    subprocess.run(cmd, capture_output=True)
+                    msg = "Silencio alternado."
                 elif "up" in v_lower or "subir" in v_lower:
-                    subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+"], capture_output=True)
+                    cmd = run_on_host(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%+"])
+                    subprocess.run(cmd, capture_output=True)
                     msg = "Volumen aumentado."
-                elif "down" in v_lower or "bajar" in v_lower:
-                    subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"], capture_output=True)
-                    msg = "Volumen disminuido."
                 else:
-                    msg = f"Valor de volumen no reconocido: {value}"
+                    cmd = run_on_host(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"])
+                    subprocess.run(cmd, capture_output=True)
+                    msg = "Volumen disminuido."
             
             if player: player.write_log(f"🔊 {msg}")
             return msg
         except Exception as e:
-            return f"Error al ajustar volumen en Linux: {e}"
+            return f"Error en audio: {e}"
 
     elif action == "brightness" or action == "brillo":
         try:
-            if str(value).isdigit():
-                target = int(value)
-                subprocess.run(["brightnessctl", "s", f"{target}%"], capture_output=True)
-                msg = f"Brillo ajustado al {target}%."
-            else:
-                v_lower = str(value).lower()
-                if "up" in v_lower or "subir" in v_lower:
-                    subprocess.run(["brightnessctl", "s", "+10%"], capture_output=True)
-                    msg = "Brillo aumentado."
-                else:
-                    subprocess.run(["brightnessctl", "s", "10%-"], capture_output=True)
-                    msg = "Brillo disminuido."
-            return msg
+            val = f"{value}%" if str(value).isdigit() else ("+10%" if "up" in str(value).lower() else "10%-")
+            cmd = run_on_host(["brightnessctl", "s", val])
+            subprocess.run(cmd, capture_output=True)
+            return f"Brillo ajustado: {val}"
         except Exception as e:
-            return f"Error al ajustar brillo: {e}."
+            return f"Error en brillo: {e}."
 
     elif action in ("minimize", "window_minimize", "minimizar"):
         try:
-            import pyautogui
-            pyautogui.hotkey('win', 'd') 
-            return "Comando de minimización enviado."
-        except Exception as e:
-            return f"Error al minimizar: {e}"
+            # Minimizar todo en el host
+            cmd = run_on_host(["xdotool", "key", "super+d"])
+            subprocess.run(cmd, capture_output=True)
+            return "Escritorio mostrado (Host)."
+        except:
+            return "Error al intentar minimizar en el Host."
 
     elif action in ("close_app", "cerrar_app", "kill"):
-        if not value: return "Error: Se necesita el nombre de la aplicación."
+        if not value: return "Error: Falta el nombre de la app."
         try:
-            # Pkill es lo más efectivo en Bazzite
-            subprocess.run(["pkill", "-f", value], capture_output=True)
-            return f"Orden de cierre enviada para: {value}"
+            app = value.lower()
+            # Mapeo agresivo para Brave y otros
+            targets = [app]
+            if "brave" in app: targets = ["brave", "brave-browser", "com.brave.Browser"]
+            if "chrome" in app: targets = ["chrome", "google-chrome", "google-chrome-stable"]
+            
+            results = []
+            for t in targets:
+                # Intentar pkill en el host
+                cmd_pkill = run_on_host(["pkill", "-9", "-f", t])
+                subprocess.run(cmd_pkill, capture_output=True)
+                # Intentar flatpak kill en el host
+                if "com." in t or "brave" in app:
+                    cmd_flatpak = run_on_host(["flatpak", "kill", "com.brave.Browser"])
+                    subprocess.run(cmd_flatpak, capture_output=True)
+                results.append(t)
+            
+            return f"Órdenes de cierre enviadas al Host para: {', '.join(results)}"
         except Exception as e:
-            return f"Error al cerrar: {e}"
+            return f"Error al cerrar en Host: {e}"
 
     return f"Acción '{action}' no soportada."
