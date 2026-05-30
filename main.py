@@ -466,7 +466,7 @@ TOOL_DECLARATIONS = [
         }
     },
     {
-        "name": "jarvis_ui_control",
+        "name": "igris_ui_control",
         "description": (
             "Control total sobre la ventana principal y los widgets de la interfaz de IGRIS. "
             "Permite minimizar/restaurar la ventana principal, o abrir, cerrar, alternar la visibilidad de cualquier widget del dashboard.\n"
@@ -2781,29 +2781,22 @@ class IgrisLive:
                 else:
                     result = "Módulo native_ui no encontrado."
 
-            elif name == "jarvis_ui_control":
+            elif name == "igris_ui_control":
                 action_ui = args.get("action", "").lower()
                 widget_name = args.get("widget", "").lower()
                 if action_ui == "minimize":
                     try:
-                        if hasattr(self.ui, "_win") and hasattr(self.ui._win, "showMinimized"):
-                            QMetaObject.invokeMethod(self.ui._win, "showMinimized", Qt.ConnectionType.QueuedConnection)
-                        elif hasattr(self.ui, "root") and hasattr(self.ui.root, "iconify"):
-                            self.ui.root.after(0, self.ui.root.iconify)
+                        if hasattr(self.ui, "_win"):
+                            QTimer.singleShot(0, self.ui._win.showMinimized)
                         result = "Interfaz de usuario minimizada."
                     except Exception as ui_e:
                         result = f"Error al minimizar: {ui_e}"
-                elif action_ui == "restore":
+                elif action_ui in ("restore", "maximize", "show"):
                     try:
-                        if hasattr(self.ui, "_win") and hasattr(self.ui._win, "showNormal"):
-                            QMetaObject.invokeMethod(self.ui._win, "showNormal", Qt.ConnectionType.QueuedConnection)
-                            QMetaObject.invokeMethod(self.ui._win, "activateWindow", Qt.ConnectionType.QueuedConnection)
-                        elif hasattr(self.ui, "root") and hasattr(self.ui.root, "deiconify"):
-                            def _restore():
-                                self.ui.root.deiconify()
-                                self.ui.root.attributes("-topmost", True)
-                                self.ui.root.attributes("-topmost", False)
-                            self.ui.root.after(0, _restore)
+                        if hasattr(self.ui, "_win"):
+                            QTimer.singleShot(0, self.ui._win.showNormal)
+                            QTimer.singleShot(50, self.ui._win.activateWindow)
+                            QTimer.singleShot(100, self.ui._win.raise_)
                         result = "Interfaz de usuario restaurada."
                     except Exception as ui_e:
                         result = f"Error al restaurar: {ui_e}"
