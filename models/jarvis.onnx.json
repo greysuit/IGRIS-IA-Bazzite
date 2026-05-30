@@ -27,7 +27,7 @@ Choices must be made at each step, including:
 Start by installing system dependencies:
 
 ``` sh
-sudo apt-get install python3-dev
+sudo dnf install python3-dev
 ```
 
 Then create a Python virtual environment:
@@ -43,7 +43,7 @@ pip3 install -e .
 
 Run the `build_monotonic_align.sh` script in the `src/python` directory to build the extension.
 
-Ensure you have [espeak-ng](https://github.com/espeak-ng/espeak-ng/) installed (`sudo apt-get install espeak-ng`).
+Ensure you have [espeak-ng](https://github.com/espeak-ng/espeak-ng/) installed (`sudo dnf install espeak-ng`).
 
 
 ## Preparing a Dataset
