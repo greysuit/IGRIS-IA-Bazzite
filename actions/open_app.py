@@ -214,22 +214,21 @@ def open_app(parameters: dict, response=None, player=None) -> str:
                 player.write_log(f"📁 {msg}")
             return msg
 
-        # 4. Standard Static mappings dictionary
+        # 4. Standard Static mappings dictionary for Linux/Bazzite
         mappings = {
-            "notepad": "notepad.exe",
-            "bloc de notas": "notepad.exe",
-            "calculator": "calc.exe",
-            "calculadora": "calc.exe",
-            "chrome": "chrome.exe",
-            "google chrome": "chrome.exe",
-            "explorer": "explorer.exe",
-            "explorador de archivos": "explorer.exe",
-            "cmd": "cmd.exe",
-            "terminal": "powershell.exe",
-            "powershell": "powershell.exe",
-            "paint": "mspaint.exe",
-            "taskmgr": "taskmgr.exe",
-            "administrador de tareas": "taskmgr.exe"
+            "notepad": "kate",
+            "bloc de notas": "kate",
+            "calculator": "kcalc",
+            "calculadora": "kcalc",
+            "chrome": "google-chrome",
+            "google chrome": "google-chrome",
+            "brave": "flatpak run com.brave.Browser",
+            "explorer": "dolphin",
+            "explorador de archivos": "dolphin",
+            "terminal": "konsole",
+            "konsole": "konsole",
+            "taskmgr": "plasma-systemmonitor",
+            "administrador de tareas": "plasma-systemmonitor"
         }
 
         executable = mappings.get(app_lower, None)

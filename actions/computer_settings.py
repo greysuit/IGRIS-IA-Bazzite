@@ -53,4 +53,11 @@ def computer_settings(parameters: dict, response=None, player=None) -> str:
         except Exception as e:
             return f"Error al ajustar brillo: {e}. Asegúrate de tener 'brightnessctl' instalado."
 
-    return f"La acción '{action}' aún no es compatible de forma nativa en Bazzite, señor."
+    elif action in ("minimize", "window_minimize", "minimizar"):
+        try:
+            import pyautogui
+            # Atajo estándar de KDE para mostrar escritorio / minimizar todo
+            pyautogui.hotkey('win', 'd') 
+            return "Comando de minimización enviado al sistema."
+        except Exception as e:
+            return f"Error al minimizar: {e}"
