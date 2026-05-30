@@ -60,8 +60,8 @@ def computer_settings(parameters: dict, response=None, player=None) -> str:
         except:
             return "Error al intentar minimizar en el Host."
 
-    elif action in ("close_app", "cerrar_app", "kill"):
-        if not value: return "Error: Falta el nombre de la app."
+    elif action in ("close_app", "cerrar_app", "kill", "taskkill"):
+        if not value: return "Error: Se necesita el nombre de la app."
         try:
             app = value.lower()
             # Mapeo agresivo para Brave y otros
@@ -71,16 +71,17 @@ def computer_settings(parameters: dict, response=None, player=None) -> str:
             
             results = []
             for t in targets:
-                # Intentar pkill en el host
+                # El equivalente de taskkill /F en Linux es pkill -9
                 cmd_pkill = run_on_host(["pkill", "-9", "-f", t])
                 subprocess.run(cmd_pkill, capture_output=True)
-                # Intentar flatpak kill en el host
-                if "com." in t or "brave" in app:
-                    cmd_flatpak = run_on_host(["flatpak", "kill", "com.brave.Browser"])
-                    subprocess.run(cmd_flatpak, capture_output=True)
+                
+                # Si es un Flatpak (como suele ser en Bazzite)
+                if "brave" in app or "com." in t:
+                    subprocess.run(run_on_host(["flatpak", "kill", "com.brave.Browser"]), capture_output=True)
+                
                 results.append(t)
             
-            return f"Órdenes de cierre enviadas al Host para: {', '.join(results)}"
+            return f"Taskkill (pkill -9) ejecutado en el Host para: {', '.join(results)}"
         except Exception as e:
             return f"Error al cerrar en Host: {e}"
 
