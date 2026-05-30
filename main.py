@@ -2087,35 +2087,36 @@ class IgrisLive:
             raise RuntimeError("Config changed — reconnect requested")
 
     def _speak_local(self, text: str):
-        """Genera y reproduce voz localmente usando Piper TTS."""
+        """Genera y reproduce voz localmente usando Piper o XTTS (Clonación)."""
         if not text.strip(): return
         self.set_speaking(True)
         try:
-            # Comando de Piper: Texto -> Piper -> aplay (reproducción inmediata)
-            # models/jarvis.onnx es el modelo que descargamos
-            piper_cmd = [
-                "piper", 
-                "--model", "models/jarvis.onnx", 
-                "--output_raw"
-            ]
-            aplay_cmd = [
-                "aplay", 
-                "-r", "22050", 
-                "-f", "S16_LE", 
-                "-t", "raw"
-            ]
+            reference_audio = "models/milton_wolch.wav"
             
-            p1 = subprocess.Popen(piper_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-            p2 = subprocess.Popen(aplay_cmd, stdin=p1.stdout)
-            p1.stdin.write(text.encode("utf-8"))
-            p1.stdin.close()
-            p2.wait()
+            if os.path.exists(reference_audio):
+                # Lógica para XTTS v2 (Clonación de Milton Wolch)
+                # Requiere la librería 'TTS' instalada
+                import subprocess
+                cmd = [
+                    "tts", "--model_name", "tts_models/multilingual/multi-dataset/xtts_v2",
+                    "--text", text, "--speaker_wav", reference_audio, 
+                    "--language_idx", "es", "--out_path", "models/output.wav"
+                ]
+                subprocess.run(cmd, capture_output=True)
+                subprocess.run(["aplay", "models/output.wav"], capture_output=True)
+            else:
+                # Fallback a Piper (Voz rápida)
+                piper_cmd = ["piper", "--model", "models/jarvis.onnx", "--output_raw"]
+                aplay_cmd = ["aplay", "-r", "22050", "-f", "S16_LE", "-t", "raw"]
+                p1 = subprocess.Popen(piper_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+                p2 = subprocess.Popen(aplay_cmd, stdin=p1.stdout)
+                p1.stdin.write(text.encode("utf-8"))
+                p1.stdin.close()
+                p2.wait()
         except Exception as e:
-            print(f"[IGRIS] Error en voz local (Piper): {e}")
+            print(f"[IGRIS] Error en síntesis local: {e}")
         finally:
             self.set_speaking(False)
-            if not self.ui.muted:
-                self.ui.set_state("LISTENING")
 
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
