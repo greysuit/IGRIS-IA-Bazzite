@@ -10,23 +10,23 @@ from datetime import datetime
 
 def resolve_path(p: str) -> str:
     if not p:
-        return os.path.expanduser("~/Desktop")
+        return os.path.expanduser("~")
     
     p_lower = p.lower().strip()
     home = os.path.expanduser("~")
     
-    # Keyword short-circuits
-    if p_lower == "desktop" or p_lower.startswith("desktop\\") or p_lower.startswith("desktop/"):
-        rel = p[7:].lstrip("\\/")
+    # Keyword short-circuits (Linux optimized)
+    if p_lower == "desktop" or p_lower.startswith("desktop/"):
+        rel = p[7:].lstrip("/")
         return os.path.join(home, "Desktop", rel)
-    elif p_lower == "downloads" or p_lower.startswith("downloads\\") or p_lower.startswith("downloads/"):
-        rel = p[9:].lstrip("\\/")
+    elif p_lower == "downloads" or p_lower.startswith("downloads/"):
+        rel = p[9:].lstrip("/")
         return os.path.join(home, "Downloads", rel)
-    elif p_lower == "documents" or p_lower.startswith("documents\\") or p_lower.startswith("documents/"):
-        rel = p[9:].lstrip("\\/")
+    elif p_lower == "documents" or p_lower.startswith("documents/"):
+        rel = p[9:].lstrip("/")
         return os.path.join(home, "Documents", rel)
-    elif p_lower == "home" or p_lower.startswith("home\\") or p_lower.startswith("home/"):
-        rel = p[4:].lstrip("\\/")
+    elif p_lower == "home" or p_lower.startswith("home/"):
+        rel = p[4:].lstrip("/")
         return os.path.join(home, rel)
         
     return os.path.abspath(p)
@@ -283,7 +283,7 @@ def file_controller(parameters: dict, player=None) -> str:
                 "Documentos": [".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".txt", ".md"],
                 "Imagenes": [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico"],
                 "Zips": [".zip", ".rar", ".7z", ".tar", ".gz"],
-                "Ejecutables": [".exe", ".msi", ".bat", ".vbs"]
+                "AppImages": [".appimage"]
             }
             
             moved_count = 0

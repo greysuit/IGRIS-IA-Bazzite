@@ -8,7 +8,7 @@ from pathlib import Path
 
 def run_in_sandbox(tool_name: str, test_params: dict) -> tuple[bool, str]:
     """Ejecuta de manera segura la herramienta recién creada en un subproceso sandbox con timeout."""
-    python_exe = sys.executable or ".venv/Scripts/python.exe"
+    python_exe = sys.executable or "python3"
     params_json = json.dumps(test_params)
     
     # Código que se ejecutará en el sandbox
