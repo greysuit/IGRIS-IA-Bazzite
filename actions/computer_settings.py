@@ -12,7 +12,6 @@ def computer_settings(parameters: dict, response=None, player=None) -> str:
         try:
             if str(value).isdigit():
                 target = int(value)
-                # wpctl set-volume @DEFAULT_AUDIO_SINK@ 50%
                 subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{target/100}"], capture_output=True)
                 msg = f"Volumen ajustado al {target}% via wpctl."
             else:
@@ -36,7 +35,6 @@ def computer_settings(parameters: dict, response=None, player=None) -> str:
 
     elif action == "brightness" or action == "brillo":
         try:
-            # Usar brightnessctl (común en Bazzite)
             if str(value).isdigit():
                 target = int(value)
                 subprocess.run(["brightnessctl", "s", f"{target}%"], capture_output=True)
@@ -51,13 +49,23 @@ def computer_settings(parameters: dict, response=None, player=None) -> str:
                     msg = "Brillo disminuido."
             return msg
         except Exception as e:
-            return f"Error al ajustar brillo: {e}. Asegúrate de tener 'brightnessctl' instalado."
+            return f"Error al ajustar brillo: {e}."
 
     elif action in ("minimize", "window_minimize", "minimizar"):
         try:
             import pyautogui
-            # Atajo estándar de KDE para mostrar escritorio / minimizar todo
             pyautogui.hotkey('win', 'd') 
-            return "Comando de minimización enviado al sistema."
+            return "Comando de minimización enviado."
         except Exception as e:
             return f"Error al minimizar: {e}"
+
+    elif action in ("close_app", "cerrar_app", "kill"):
+        if not value: return "Error: Se necesita el nombre de la aplicación."
+        try:
+            # Pkill es lo más efectivo en Bazzite
+            subprocess.run(["pkill", "-f", value], capture_output=True)
+            return f"Orden de cierre enviada para: {value}"
+        except Exception as e:
+            return f"Error al cerrar: {e}"
+
+    return f"Acción '{action}' no soportada."

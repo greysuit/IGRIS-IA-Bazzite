@@ -1,84 +1,40 @@
 import time
-try:
-    import pygetwindow as gw
-except (ImportError, NotImplementedError):
-    gw = None
-
 import pyautogui
+import subprocess
+import os
 
 def native_ui(parameters: dict, player=None) -> str:
     """
-    Automatización nativa de la interfaz de Windows (sin usar visión/API).
-    Permite listar, enfocar, escribir y hacer clic en ventanas de forma precisa.
+    Automatización nativa para Linux/Bazzite.
+    Usa pkill y atajos de teclado en lugar de pygetwindow.
     """
     action = parameters.get("action", "")
     window_title = parameters.get("window_title", "")
     text_to_type = parameters.get("text", "")
     
     if action == "list_windows":
-        # Lista todas las ventanas abiertas ignorando las ocultas o sin título
-        titles = [t for t in gw.getAllTitles() if t.strip()]
-        return "Ventanas abiertas:\n" + "\n".join(titles)
-        
-    elif action == "focus_window":
-        if not window_title:
-            return "Error: Se requiere el nombre de la ventana (window_title)."
-        windows = gw.getWindowsWithTitle(window_title)
-        if not windows:
-            return f"No se encontró ninguna ventana con el título: '{window_title}'"
-        
-        win = windows[0]
+        # En Linux/Bazzite, listamos procesos activos como alternativa
         try:
-            if win.isMinimized:
-                win.restore()
-            win.activate()
-            return f"Ventana '{win.title}' enfocada exitosamente."
-        except Exception as e:
-            return f"Error al intentar enfocar la ventana: {str(e)}"
+            result = subprocess.run(["ps", "-e", "-o", "comm"], capture_output=True, text=True)
+            procs = sorted(list(set(result.stdout.splitlines())))[1:50] # Top 50 procs
+            return "Aplicaciones/Procesos activos:\n" + "\n".join(procs)
+        except:
+            return "No se pudo listar procesos en este entorno."
+        
+    elif action == "focus_window" or action == "close_window":
+        if not window_title:
+            return "Error: Se requiere el nombre de la aplicación."
+        # Intentar pkill para cerrar si se pidió close
+        if action == "close_window":
+            subprocess.run(["pkill", "-f", window_title])
+            return f"Orden de cierre enviada a '{window_title}'."
+        return "El enfoque de ventanas específico no es compatible con Wayland/Bazzite por seguridad."
             
     elif action == "type_in_window":
-        if not window_title or not text_to_type:
-            return "Error: Se requiere window_title y text."
-        
-        windows = gw.getWindowsWithTitle(window_title)
-        if not windows:
-            return f"No se encontró la ventana: '{window_title}'"
-            
-        win = windows[0]
-        try:
-            if win.isMinimized:
-                win.restore()
-            win.activate()
-            time.sleep(0.5) # Breve pausa para asegurar foco
-            
-            pyautogui.write(text_to_type, interval=0.01)
-            return f"Texto escrito en la ventana '{win.title}'."
-        except Exception as e:
-            return f"Error al escribir en la ventana: {str(e)}"
-            
-    elif action == "click_center":
-        if not window_title:
-            return "Error: Se requiere window_title."
-            
-        windows = gw.getWindowsWithTitle(window_title)
-        if not windows:
-            return f"No se encontró la ventana: '{window_title}'"
-            
-        win = windows[0]
-        try:
-            if win.isMinimized:
-                win.restore()
-            win.activate()
-            time.sleep(0.5)
-            
-            # Calculamos el centro de la ventana
-            cx = win.left + (win.width // 2)
-            cy = win.top + (win.height // 2)
-            pyautogui.click(cx, cy)
-            
-            return f"Clic realizado en el centro de la ventana '{win.title}'."
-        except Exception as e:
-            return f"Error al hacer clic: {str(e)}"
+        # Escribir en el lugar actual (donde esté el foco)
+        if not text_to_type: return "Error: Falta el texto."
+        pyautogui.write(text_to_type, interval=0.01)
+        return "Texto escrito en la aplicación actual."
             
     else:
-        return f"Acción '{action}' no soportada por native_ui."
+        return f"Acción '{action}' no soportada en Bazzite."
