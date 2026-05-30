@@ -404,6 +404,7 @@ def _get_api_key() -> str:
 
 
 IGRIS_VOICES = {
+    "LOCAL_JARVIS": ("Masculina", "Voz NATIVA de Jarvis (Local, sin dependencia de la nube)"),
     "Aoede":  ("Femenina", "Cálida y sofisticada — ideal para asistente IA"),
     "Kore":   ("Femenina", "Suave y precisa"),
     "Leda":   ("Femenina", "Natural y fluida"),
@@ -2047,6 +2048,9 @@ class IgrisLive:
         self.ui.on_text_command = self._on_text_command
         self.ui.on_stop_command = self._on_stop_pressed
         self.ui.on_config_saved = self._apply_config
+        self._local_text_buffer = ""
+        self.use_local_voice = False
+        self._turn_done_event = threading.Event()
         self._turn_done_event: asyncio.Event | None = None
         self._api_1011_tool: str | None = None   # tracks tool name when 1011 hits
         self._reconnect_event: asyncio.Event | None = None
@@ -2081,6 +2085,37 @@ class IgrisLive:
         if self._reconnect_event:
             await self._reconnect_event.wait()
             raise RuntimeError("Config changed — reconnect requested")
+
+    def _speak_local(self, text: str):
+        """Genera y reproduce voz localmente usando Piper TTS."""
+        if not text.strip(): return
+        self.set_speaking(True)
+        try:
+            # Comando de Piper: Texto -> Piper -> aplay (reproducción inmediata)
+            # models/jarvis.onnx es el modelo que descargamos
+            piper_cmd = [
+                "piper", 
+                "--model", "models/jarvis.onnx", 
+                "--output_raw"
+            ]
+            aplay_cmd = [
+                "aplay", 
+                "-r", "22050", 
+                "-f", "S16_LE", 
+                "-t", "raw"
+            ]
+            
+            p1 = subprocess.Popen(piper_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            p2 = subprocess.Popen(aplay_cmd, stdin=p1.stdout)
+            p1.stdin.write(text.encode("utf-8"))
+            p1.stdin.close()
+            p2.wait()
+        except Exception as e:
+            print(f"[IGRIS] Error en voz local (Piper): {e}")
+        finally:
+            self.set_speaking(False)
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
 
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
@@ -2359,19 +2394,24 @@ class IgrisLive:
         # Build SpeechConfig — try to set speaking rate for faster delivery
         _voice_name = _get_igris_voice()
         _speech_cfg = None
-        try:
-            _speech_cfg = types.SpeechConfig(
-                voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name=_voice_name
+        
+        # Determine if we use local voice
+        self.use_local_voice = (_voice_name == "LOCAL_JARVIS")
+
+        if not self.use_local_voice:
+            try:
+                _speech_cfg = types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=_voice_name
+                        )
                     )
                 )
-            )
-        except Exception:
-            _speech_cfg = None
+            except Exception:
+                _speech_cfg = None
 
         cfg_kwargs: dict = dict(
-            response_modalities=["AUDIO"],
+            response_modalities=["AUDIO"] if not self.use_local_voice else ["TEXT"],
             output_audio_transcription=types.AudioTranscriptionConfig(),
             input_audio_transcription=types.AudioTranscriptionConfig(),
             system_instruction="\n".join(parts),
