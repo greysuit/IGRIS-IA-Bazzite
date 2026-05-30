@@ -895,6 +895,7 @@ class DeviceSettingsDialog(QDialog):
         layout.addWidget(QLabel("Active Voice Model:"))
         self.cmb_voice = QComboBox()
         self.voices = [
+            ("LOCAL_JARVIS", "IGRIS Core (Local - Español Latino 🇲🇽)"),
             ("Aoede", "Femenina (Cálida y sofisticada ✨)"),
             ("Kore", "Femenina (Suave y precisa)"),
             ("Leda", "Femenina (Natural y fluida)"),
